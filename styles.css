@@ -76,7 +76,7 @@ body { -webkit-touch-callout: default; }
   -webkit-backdrop-filter: blur(20px);
   
   /* [修改需求 1] 行程與分析頁面圖卡加入邊筐 */
-  border: 1px solid #94A3B8; /* 帶一點藍調的灰色邊框 */
+  border: 1px solid #BCCCDC; /* 帶一點藍調的灰色邊框 */
   border-radius: 20px;
   
   box-shadow: 0 4px 12px -2px rgba(137, 167, 177, 0.15); /* 淡淡的冰川藍陰影 */
