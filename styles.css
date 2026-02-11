@@ -1,9 +1,8 @@
 /* =========================================================
-   2026 冰島挪威之旅 - Nordic Apple-like Pastel (v6)
-   Fixes:
-   - Text contrast (header + itinerary date line + analysis labels)
-   - Remove bottom overlay
-   - Pastel but richer category card colors
+   Nordic Apple-like Pastel (v7)
+   - Fix iOS PWA header under Dynamic Island
+   - Itinerary cards: no gradient + left color bar
+   - Improve budget card readability
    ========================================================= */
 
 :root{
@@ -15,8 +14,8 @@
   --ink-2:rgba(7,19,31,.68);
   --ink-3:rgba(7,19,31,.50);
 
-  --glass:rgba(255,255,255,.72);
-  --glass-strong:rgba(255,255,255,.90);
+  --glass:rgba(255,255,255,.74);
+  --glass-strong:rgba(255,255,255,.92);
   --glass-border:rgba(10,25,45,.14);
   --shadow:0 12px 38px rgba(10,25,45,.10);
 
@@ -24,23 +23,24 @@
   --radius-lg:18px;
   --radius-md:14px;
 
-  --safe-top: env(safe-area-inset-top);
-  --safe-bottom: env(safe-area-inset-bottom);
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
 
-  /* Pastel-but-rich palette (macaron / lavender / nordic) */
-  --c-sky:#4a9fd9;
-  --c-moss:#3e9a72;
-  --c-amber:#d39a4b;
-  --c-lav:#7b78da;
-  --c-rose:#d07b93;
-  --c-slate:#556776;
+  /* macaron palette */
+  --sky:#7bb7ff;
+  --lav:#b8b1ff;
+  --mint:#7fe0c4;
+  --peach:#ffb79f;
+  --butter:#ffd87a;
+  --rose:#ff9fbe;
+  --slate:#7d93a6;
 
-  --p-lav:#e9e7ff;
-  --p-peach:#ffe6d5;
-  --p-mint:#ddf7ef;
-  --p-sky:#dff1ff;
-  --p-butter:#fff1c8;
-  --p-rose:#ffe3ee;
+  /* Itinerary category bars */
+  --it-sight:#7bb7ff;   /* 景點 */
+  --it-food:#ffb79f;    /* 飲食 */
+  --it-traffic:#b8b1ff; /* 交通 */
+  --it-stay:#7fe0c4;    /* 住宿 */
+  --it-other:#ff9fbe;   /* 其他 */
 }
 
 *{box-sizing:border-box;}
@@ -58,32 +58,29 @@ body{
 .app-shell{min-height:100vh;display:flex;flex-direction:column;}
 .safe-bottom{display:none!important;height:0!important;}
 
-/* ---- Force tailwind light text -> readable (fix your red circles) ---- */
+/* force legibility */
 .text-slate-50,
 .text-slate-200\/90,
 .text-slate-200\/80,
 .text-slate-300\/80{
   color: var(--ink-1) !important;
 }
-#page-analysis .text-slate-300\/80,
-#page-analysis .text-slate-200\/90,
-#page-itinerary .text-slate-200\/90,
-#page-itinerary .text-slate-400{
-  color: var(--ink-2) !important;
-}
 
-/* Header safe area */
+/* ===== Header: iOS PWA Dynamic Island safe =====
+   Use safe-top + extra padding so title never goes behind island/notch. */
 .app-header{
   position:sticky;
   top:0;
   z-index:30;
-  padding-top:calc(30px + var(--safe-top));
-  background:linear-gradient(180deg, rgba(244,251,255,.94), rgba(244,251,255,.80));
+  padding-top:calc(var(--safe-top) + 44px);
+  padding-bottom:14px;
+  background:linear-gradient(180deg, rgba(244,251,255,.96), rgba(244,251,255,.82));
   backdrop-filter:blur(16px);
   -webkit-backdrop-filter:blur(16px);
   border-bottom:1px solid rgba(10,25,45,.10);
 }
 .app-header h1{color:var(--ink-0)!important;}
+
 #syncStatus .text-sm{color:var(--ink-0)!important;font-weight:900;}
 
 .pill{
@@ -91,27 +88,28 @@ body{
   padding:6px 12px;border-radius:999px;
   font-size:12px;font-weight:900;
   border:1px solid rgba(10,25,45,.14);
-  background:rgba(255,255,255,.86);
+  background:rgba(255,255,255,.88);
   color:var(--ink-1);
   box-shadow:0 10px 26px rgba(10,25,45,.10);
 }
-.pill-sky{background:rgba(74,159,217,.18);border-color:rgba(74,159,217,.30);color:var(--ink-0);}
+.pill-sky{background:rgba(123,183,255,.22);border-color:rgba(123,183,255,.30);color:var(--ink-0);}
 .pill-ice{background:rgba(255,255,255,.90);}
 
 .dot{width:10px;height:10px;border-radius:999px;display:inline-block;box-shadow:0 0 0 3px rgba(255,255,255,.95);}
-.dot-ok{background:var(--c-moss);}
-.dot-sync{background:var(--c-sky);}
-.dot-offline{background:var(--c-slate);}
-.dot-wait{background:var(--c-amber);}
+.dot-ok{background:var(--mint);}
+.dot-sync{background:var(--sky);}
+.dot-offline{background:var(--slate);}
+.dot-wait{background:var(--butter);}
 
 .app-content{flex:1;display:flex;flex-direction:column;}
 
+/* tabbar stays below header - already fine */
 .tabbar{
   position:sticky;
-  top:calc(106px + var(--safe-top));
+  top:calc(var(--safe-top) + 44px + 92px);
   z-index:25;
   padding:10px 12px;
-  background:rgba(244,251,255,.84);
+  background:rgba(244,251,255,.86);
   backdrop-filter:blur(16px);
   -webkit-backdrop-filter:blur(16px);
   border-bottom:1px solid rgba(10,25,45,.10);
@@ -122,13 +120,13 @@ body{
   padding:10px 12px;
   border-radius:999px;
   border:1px solid rgba(10,25,45,.12);
-  background:rgba(255,255,255,.80);
+  background:rgba(255,255,255,.84);
   color:var(--ink-1);
   font-size:14px;font-weight:900;
 }
 .tab.active{
-  background:rgba(74,159,217,.18);
-  border-color:rgba(74,159,217,.30);
+  background:rgba(123,183,255,.22);
+  border-color:rgba(123,183,255,.30);
   color:var(--ink-0);
 }
 
@@ -145,12 +143,12 @@ body{
   padding:10px 14px;
   font-weight:900;
   color:var(--ink-0);
-  background:rgba(255,255,255,.84);
+  background:rgba(255,255,255,.86);
   box-shadow:0 10px 26px rgba(10,25,45,.10);
 }
 .btn:active{transform:translateY(1px);}
-.btn-primary{background:rgba(74,159,217,.18);border-color:rgba(74,159,217,.30);}
-.btn-outline{background:rgba(255,255,255,.80);}
+.btn-primary{background:rgba(123,183,255,.22);border-color:rgba(123,183,255,.30);}
+.btn-outline{background:rgba(255,255,255,.82);}
 .btn-ghost{background:transparent;box-shadow:none;}
 
 .field-label{font-size:12px;font-weight:900;color:var(--ink-2);}
@@ -165,17 +163,12 @@ body{
   outline:none;
 }
 .field-input:focus{
-  border-color:rgba(74,159,217,.46);
-  box-shadow:0 0 0 4px rgba(74,159,217,.18);
+  border-color:rgba(123,183,255,.46);
+  box-shadow:0 0 0 4px rgba(123,183,255,.18);
 }
 
-/* time boxes shorter (more) */
-.time-input{
-  width:100%;
-  padding:9px 6px;
-  font-size:14px;
-  letter-spacing:.2px;
-}
+/* time input smaller */
+.time-input{width:100%;padding:8px 6px;font-size:14px;}
 
 .editable{
   margin-top:6px;
@@ -203,13 +196,13 @@ body{
   padding:10px 12px;
   border-radius:999px;
   border:1px solid rgba(10,25,45,.12);
-  background:rgba(255,255,255,.82);
+  background:rgba(255,255,255,.84);
   font-size:12px;font-weight:900;
   color:var(--ink-1);
 }
 .date-chip.active{
-  background:rgba(74,159,217,.20);
-  border-color:rgba(74,159,217,.32);
+  background:rgba(123,183,255,.22);
+  border-color:rgba(123,183,255,.30);
   color:var(--ink-0);
 }
 
@@ -224,54 +217,59 @@ body{
 }
 
 /* Pending */
-.pending-card{border:2px dashed var(--c-amber)!important;}
+.pending-card{border:2px dashed rgba(211,154,75,.9)!important;}
 .pending-badge{
   padding:2px 8px;border-radius:999px;
-  border:1px dashed var(--c-amber);
+  border:1px dashed rgba(211,154,75,.9);
   color:rgba(110,70,10,.92);
-  background:rgba(255,255,255,.82);
+  background:rgba(255,255,255,.86);
   font-weight:900;
 }
 
-/* Itinerary cards: macaron pastel background per category */
-.it-card{border:1px solid rgba(10,25,45,.14);}
-.it-sight{
-  background:linear-gradient(180deg, rgba(223,241,255,.92), rgba(255,255,255,.70));
+/* ===== Itinerary cards: NO gradient, add left bar ===== */
+.it-card{
+  position:relative;
+  padding-left:16px; /* room for bar */
+  background:rgba(255,255,255,.72);
 }
-.it-food{
-  background:linear-gradient(180deg, rgba(255,230,213,.92), rgba(255,255,255,.70));
+.it-card::before{
+  content:"";
+  position:absolute;
+  left:10px;
+  top:14px;
+  bottom:14px;
+  width:6px;
+  border-radius:999px;
+  background:var(--it-other);
+  box-shadow:0 10px 22px rgba(10,25,45,.12);
 }
-.it-traffic{
-  background:linear-gradient(180deg, rgba(233,231,255,.92), rgba(255,255,255,.70));
-}
-.it-stay{
-  background:linear-gradient(180deg, rgba(221,247,239,.92), rgba(255,255,255,.70));
-}
-.it-other{
-  background:linear-gradient(180deg, rgba(255,227,238,.92), rgba(255,255,255,.70));
-}
+.it-sight::before{ background:var(--it-sight); }
+.it-food::before{ background:var(--it-food); }
+.it-traffic::before{ background:var(--it-traffic); }
+.it-stay::before{ background:var(--it-stay); }
+.it-other::before{ background:var(--it-other); }
 
-/* Itinerary tags */
-.tag-it-sight{ background:rgba(74,159,217,.22); border-color:rgba(74,159,217,.30); }
-.tag-it-food{  background:rgba(211,154,75,.24); border-color:rgba(211,154,75,.32); }
-.tag-it-traffic{background:rgba(123,120,218,.22); border-color:rgba(123,120,218,.32); }
-.tag-it-stay{  background:rgba(62,154,114,.22); border-color:rgba(62,154,114,.32); }
-.tag-it-other{ background:rgba(208,123,147,.22); border-color:rgba(208,123,147,.32); }
+/* Itinerary tags keep color */
+.tag-it-sight{ background:rgba(123,183,255,.22); border-color:rgba(123,183,255,.30); }
+.tag-it-food{  background:rgba(255,183,159,.26); border-color:rgba(255,183,159,.34); }
+.tag-it-traffic{background:rgba(184,177,255,.26); border-color:rgba(184,177,255,.34); }
+.tag-it-stay{  background:rgba(127,224,196,.26); border-color:rgba(127,224,196,.34); }
+.tag-it-other{ background:rgba(255,159,190,.24); border-color:rgba(255,159,190,.34); }
 
-/* Expense tags (unchanged) */
-.tag-exp-breakfast{ background:rgba(255,210,140,.32); border-color:rgba(211,154,75,.34); }
-.tag-exp-lunch{     background:rgba(255,197,120,.28); border-color:rgba(211,154,75,.34); }
-.tag-exp-dinner{    background:rgba(255,180,110,.26); border-color:rgba(211,154,75,.34); }
-.tag-exp-snack{     background:rgba(255,220,170,.28); border-color:rgba(211,154,75,.34); }
-.tag-exp-stay{      background:rgba(221,247,239,.70); border-color:rgba(62,154,114,.34); }
-.tag-exp-flight{    background:rgba(233,231,255,.70); border-color:rgba(123,120,218,.34); }
-.tag-exp-rent{      background:rgba(223,241,255,.70); border-color:rgba(74,159,217,.34); }
-.tag-exp-parking{   background:rgba(220,230,240,.60); border-color:rgba(85,103,118,.30); }
-.tag-exp-fuel{      background:rgba(223,241,255,.60); border-color:rgba(74,159,217,.34); }
-.tag-exp-charge{    background:rgba(205,245,250,.60); border-color:rgba(74,159,217,.30); }
-.tag-exp-souvenir{  background:rgba(255,227,238,.70); border-color:rgba(208,123,147,.34); }
-.tag-exp-ticket{    background:rgba(233,231,255,.70); border-color:rgba(123,120,218,.34); }
-.tag-exp-other{     background:rgba(220,230,240,.60); border-color:rgba(85,103,118,.30); }
+/* Expense tags (unchanged but more vivid) */
+.tag-exp-breakfast{ background:rgba(255,216,122,.30); border-color:rgba(255,216,122,.45); }
+.tag-exp-lunch{     background:rgba(255,183,159,.28); border-color:rgba(255,183,159,.42); }
+.tag-exp-dinner{    background:rgba(255,159,190,.26); border-color:rgba(255,159,190,.40); }
+.tag-exp-snack{     background:rgba(184,177,255,.26); border-color:rgba(184,177,255,.40); }
+.tag-exp-stay{      background:rgba(127,224,196,.26); border-color:rgba(127,224,196,.40); }
+.tag-exp-flight{    background:rgba(123,183,255,.26); border-color:rgba(123,183,255,.40); }
+.tag-exp-rent{      background:rgba(184,177,255,.22); border-color:rgba(184,177,255,.40); }
+.tag-exp-parking{   background:rgba(205,215,225,.30); border-color:rgba(125,147,166,.40); }
+.tag-exp-fuel{      background:rgba(123,183,255,.20); border-color:rgba(123,183,255,.38); }
+.tag-exp-charge{    background:rgba(170,235,240,.24); border-color:rgba(170,235,240,.40); }
+.tag-exp-souvenir{  background:rgba(255,159,190,.22); border-color:rgba(255,159,190,.40); }
+.tag-exp-ticket{    background:rgba(184,177,255,.22); border-color:rgba(184,177,255,.40); }
+.tag-exp-other{     background:rgba(205,215,225,.30); border-color:rgba(125,147,166,.40); }
 
 .link-soft{ text-decoration:underline; text-underline-offset:2px; color:rgba(7,19,31,.86); }
 
@@ -287,7 +285,7 @@ body{
   height:100%;
   width:0%;
   border-radius:999px;
-  background:linear-gradient(90deg, rgba(74,159,217,.95), rgba(62,154,114,.95));
+  background:linear-gradient(90deg, rgba(123,183,255,.95), rgba(127,224,196,.95));
 }
 
 /* Modals */
@@ -323,10 +321,10 @@ body{
   -webkit-overflow-scrolling:touch;
 }
 
-/* Pull-to-refresh indicator safe area */
+/* Pull-to-refresh safe area */
 #ptrIndicator{
   top:calc(var(--safe-top) + 6px)!important;
-  padding-top:10px!important;
+  padding-top:12px!important;
 }
 
 /* Expenses page: input-only */
@@ -338,7 +336,7 @@ body{
   display:inline-flex;align-items:center;gap:6px;
   padding:8px 10px;border-radius:999px;
   border:1px solid rgba(10,25,45,.14);
-  background:rgba(255,255,255,.88);
+  background:rgba(255,255,255,.90);
   color:var(--ink-1);
   font-size:12px;font-weight:900;
 }
