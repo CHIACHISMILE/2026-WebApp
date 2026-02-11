@@ -1,14 +1,10 @@
 /* =========================================================
- * app.js (v6)
- * Fixes for your report:
- * 1) Text contrast: handled in CSS
- * 2) Expenses legacy mapping:
- *    - Category = TWD converted amount
- *    - Item = expense category
- *    - Amount = original currency amount
- * 3) Analysis categories not all "其他"
- * 4) Itinerary card colors improved in CSS
- * 5) Itinerary time: supports "20:30", 1899-...Z, fraction-of-day
+ * app.js (v7)
+ * Fixes:
+ * - Expenses mapping: Note is title (item name). No "memo" column.
+ * - Itinerary cards: handled by CSS (no gradients + left bar)
+ * - Budget card layout: big remain left, small spent right, then bar, then mom line
+ * - Pie colors: fixed by category
  * ========================================================= */
 
 const GAS_URL = "https://script.google.com/macros/s/AKfycbzfX8f3-CcY6X-nu7Sm545Xk5ysHRrWvwqWxBV0-YGX3Ss3ShJM6r9eDnXcoBNwBULhxw/exec";
@@ -26,15 +22,15 @@ const EXP_CATEGORIES = [
   "交通（機票）","交通（租車）","交通（停車費）","交通（油錢）","交通（電費）",
   "紀念品","門票","其他"
 ];
-const PAY = ["現金","信用卡－國泰","信用卡–永豐","信用卡–元大","信用卡-永豐","信用卡-元大"]; // legacy
+const PAY = ["現金","信用卡－國泰","信用卡–永豐","信用卡–元大","信用卡-永豐","信用卡-元大","信用卡-國泰"]; // legacy variants
 const IT_CATEGORIES = ["景點","飲食","交通","住宿","其他"];
 
 const LS = {
-  itinerary: "tripapp_itinerary_v8",
-  expenses:  "tripapp_expenses_v8",
+  itinerary: "tripapp_itinerary_v9",
+  expenses:  "tripapp_expenses_v9",
   fx:        "tripapp_fx_global_v1",
-  outbox:    "tripapp_outbox_v8",
-  ui:        "tripapp_ui_v5"
+  outbox:    "tripapp_outbox_v9",
+  ui:        "tripapp_ui_v6"
 };
 
 const $ = (q) => document.querySelector(q);
@@ -99,49 +95,37 @@ function normalizeDateKey(v){
   return String(v);
 }
 
-/* ✅ Time normalization: "20:30" / ISO datetime / Date obj / fraction-of-day */
+/* Time normalization: "20:30" / ISO datetime / Date obj / fraction-of-day */
 function normalizeTime(v){
   if (v === null || v === undefined || v === "") return "";
-
-  // Date object
   if (Object.prototype.toString.call(v) === "[object Date]" && !isNaN(v.getTime())){
     const hh = String(v.getHours()).padStart(2,"0");
     const mm = String(v.getMinutes()).padStart(2,"0");
     return `${hh}:${mm}`;
   }
-
-  // number (fraction of day)
   if (typeof v === "number" && Number.isFinite(v)){
     const totalMin = Math.round(v * 24 * 60);
     const hh = String(Math.floor(totalMin/60) % 24).padStart(2,"0");
     const mm = String(totalMin % 60).padStart(2,"0");
     return `${hh}:${mm}`;
   }
-
   const s = String(v).trim();
   if (!s) return "";
-
-  // "20:30" / "0:30"
   const hm = s.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
   if (hm){
     const hh = String(Number(hm[1])).padStart(2,"0");
     const mm = String(Number(hm[2])).padStart(2,"0");
     return `${hh}:${mm}`;
   }
-
-  // ISO datetime from Sheets (e.g. 1899-12-29T16:30:00.000Z)
   if (/^\d{4}-\d{2}-\d{2}T/.test(s)){
     const d = new Date(s);
     if (!isNaN(d.getTime())){
-      // if ends with Z, use UTC to match sheet's encoded time-of-day
       const useUtc = /Z$/.test(s);
       const hh = String(useUtc ? d.getUTCHours() : d.getHours()).padStart(2,"0");
       const mm = String(useUtc ? d.getUTCMinutes() : d.getMinutes()).padStart(2,"0");
       return `${hh}:${mm}`;
     }
   }
-
-  // numeric string "0.0208333"
   const n = Number(s);
   if (Number.isFinite(n) && n >= 0 && n <= 1){
     const totalMin = Math.round(n * 24 * 60);
@@ -149,7 +133,6 @@ function normalizeTime(v){
     const mm = String(totalMin % 60).padStart(2,"0");
     return `${hh}:${mm}`;
   }
-
   return s;
 }
 
@@ -158,32 +141,18 @@ function stripHtml(html){
   div.innerHTML = html || "";
   return (div.textContent || "").trim();
 }
-
 function confirmDelete(title){
   const a = prompt(`請輸入「刪除」以確認刪除：\n${title}`);
   return (a || "").trim() === "刪除";
 }
 
-/* ===== Category styling ===== */
+/* Category helpers */
 function itCardClass(cat){
-  return ({
-    "景點":"it-sight",
-    "飲食":"it-food",
-    "交通":"it-traffic",
-    "住宿":"it-stay",
-    "其他":"it-other",
-  })[cat] || "it-other";
+  return ({ "景點":"it-sight","飲食":"it-food","交通":"it-traffic","住宿":"it-stay","其他":"it-other" })[cat] || "it-other";
 }
 function itTagClass(cat){
-  return ({
-    "景點":"tag-it-sight",
-    "飲食":"tag-it-food",
-    "交通":"tag-it-traffic",
-    "住宿":"tag-it-stay",
-    "其他":"tag-it-other",
-  })[cat] || "tag-it-other";
+  return ({ "景點":"tag-it-sight","飲食":"tag-it-food","交通":"tag-it-traffic","住宿":"tag-it-stay","其他":"tag-it-other" })[cat] || "tag-it-other";
 }
-
 function expTagClassExact(cat){
   switch(cat){
     case "早餐": return "tag-exp-breakfast";
@@ -202,7 +171,7 @@ function expTagClassExact(cat){
   }
 }
 
-/* ===== FX ===== */
+/* FX */
 function getFx(){
   const fx = load(LS.fx, { NOK:1, ISK:1, EUR:1, GBP:1, AED:1 });
   return { ...{NOK:1, ISK:1, EUR:1, GBP:1, AED:1}, ...fx };
@@ -214,7 +183,7 @@ function normalizeCurrency(c){
   return s;
 }
 
-/* ✅ Use twdOverride when available (because your sheet stores converted TWD in Category) */
+/* TWD conversion: prefer twdOverride (sheet already converted) */
 function toTwd(e, fx){
   const override = Number(e.twdOverride);
   if (Number.isFinite(override) && override > 0) return Math.round(override);
@@ -227,6 +196,15 @@ function toTwd(e, fx){
 }
 function sumTwd(items, fx){
   return Math.round(items.reduce((s,e)=>s + toTwd(e, fx), 0));
+}
+
+function normalizePayment(p){
+  let s = String(p||"").trim();
+  s = s.replaceAll("－","-").replaceAll("–","-");
+  if (s === "信用卡-永豐") return "信用卡–永豐";
+  if (s === "信用卡-元大") return "信用卡–元大";
+  if (s === "信用卡-國泰") return "信用卡－國泰";
+  return p;
 }
 
 /* ===== DOM ===== */
@@ -277,6 +255,7 @@ const btnAddExpense = $("#btnAddExpense");
 const btnSplitAll = $("#btnSplitAll");
 const splitChooser = $("#splitChooser");
 
+/* analysis elements */
 const btnFx = $("#btnFx");
 const btnFilter = $("#btnFilter");
 const budgetRemain = $("#budgetRemain");
@@ -297,6 +276,7 @@ const filterWhereBox = $('[data-filter-group="where"]');
 const filterCategoryBox = $('[data-filter-group="category"]');
 const filterPayBox = $('[data-filter-group="pay"]');
 
+/* viewer */
 const modalViewer = $("#modalViewer");
 const btnCloseViewer = $("#btnCloseViewer");
 const btnResetViewer = $("#btnResetViewer");
@@ -349,9 +329,7 @@ function computePendingFromOutbox(){
 }
 function updateSyncBadge(){
   computePendingFromOutbox();
-  const box = load(LS.outbox, []);
-  const hasPending = box.length > 0;
-
+  const hasPending = load(LS.outbox, []).length > 0;
   if (!navigator.onLine){
     setSyncBadge(hasPending ? "warn" : "offline", hasPending ? "待上傳" : "離線");
     return;
@@ -643,28 +621,20 @@ function getSplitSelected(){
   return $$("#splitChooser .tag.active").map(b => b.dataset.value);
 }
 
-function normalizePayment(p){
-  let s = String(p||"").trim();
-  s = s.replaceAll("－","-").replaceAll("–","-");
-  if (s === "信用卡-永豐") return "信用卡–永豐";
-  if (s === "信用卡-元大") return "信用卡–元大";
-  if (s === "信用卡-國泰") return "信用卡－國泰";
-  return p;
-}
-
-/* ✅ store legacy twdOverride too */
+/* Your sheet has NO memo column.
+   So: Note = title (item name). We won't store "memo". */
 function toSheetExpense(e){
   return {
     Date: normalizeDateKey(e.date),
     Payer: e.payer,
     Location: e.location,
-    Category: e.twdOverride ?? "",       // TWD (legacy)
-    Item: e.category,                    // category (legacy)
+    Category: e.twdOverride ?? "", // TWD converted amount (legacy)
+    Item: e.category,              // expense category (legacy)
     Payment: e.payment,
     Currency: normalizeCurrency(e.currency),
-    Amount: e.amount,                    // original amount
+    Amount: e.amount,              // original amount
     Involved: e.involved,
-    Note: e.note || "",
+    Note: e.item,                  // ✅ title stored in Note
     ID: e.id
   };
 }
@@ -677,14 +647,12 @@ function addExpense(){
   const currency = normalizeCurrency(expCurrency.value || "TWD");
   const amount = Number(expAmount.value);
   const title = (expTitle.value || "").trim();
-  const note = (expNote.value || "").trim();
   const split = getSplitSelected();
 
   if (!title) return alert("請輸入消費名稱");
   if (!Number.isFinite(amount) || amount <= 0) return alert("請輸入正確金額");
   if (!split.length) return alert("請選擇分攤人員");
 
-  // new entries: we compute twdOverride from fx (so "固定全旅程匯率" 生效)
   const fx = getFx();
   const twd = (currency === "TWD") ? Math.round(amount) : Math.round(amount * Number(fx[currency] || 1));
 
@@ -693,14 +661,13 @@ function addExpense(){
     date: state.selectedDate,
     payer: who,
     location: where,
-    category,            // correct category in app
-    item: title,         // item name
+    category,
+    item: title,                 // ✅ title
     payment: pay,
     currency,
-    amount,              // original amount
-    twdOverride: twd,    // store TWD snapshot
+    amount,
+    twdOverride: twd,            // fixed trip fx snapshot
     involved: split.join(","),
-    note
   };
 
   const all = load(LS.expenses, []);
@@ -712,7 +679,6 @@ function addExpense(){
 
   expAmount.value = "";
   expTitle.value = "";
-  expNote.value = "";
   setSplitDefault(who);
 
   updateSyncBadge();
@@ -730,18 +696,22 @@ function computePersonShareTwd(person, items, fx){
   return Math.round(total);
 }
 
-function categoryColorByName(cat){
-  const palette = [
-    "rgba(74,159,217,.90)","rgba(62,154,114,.90)","rgba(211,154,75,.90)",
-    "rgba(123,120,218,.90)","rgba(208,123,147,.90)","rgba(85,103,118,.86)",
-    "rgba(120,200,190,.90)","rgba(230,170,110,.90)","rgba(170,190,230,.90)",
-    "rgba(170,220,190,.90)","rgba(240,200,210,.90)","rgba(210,210,240,.90)",
-    "rgba(190,220,255,.90)"
-  ];
-  let h=0;
-  for (const ch of String(cat)) h = (h*31 + ch.charCodeAt(0)) >>> 0;
-  return palette[h % palette.length];
-}
+/* Fixed category->color mapping (for pie) */
+const PIE_COLOR = {
+  "早餐":"rgba(255,216,122,.92)",     // butter
+  "午餐":"rgba(255,183,159,.92)",     // peach
+  "晚餐":"rgba(255,159,190,.92)",     // rose
+  "零食":"rgba(184,177,255,.92)",     // lavender
+  "住宿":"rgba(127,224,196,.92)",     // mint
+  "交通（機票）":"rgba(123,183,255,.92)", // sky
+  "交通（租車）":"rgba(184,177,255,.82)",
+  "交通（停車費）":"rgba(125,147,166,.82)",
+  "交通（油錢）":"rgba(123,183,255,.78)",
+  "交通（電費）":"rgba(170,235,240,.86)",
+  "紀念品":"rgba(255,159,190,.82)",
+  "門票":"rgba(184,177,255,.82)",
+  "其他":"rgba(125,147,166,.70)"
+};
 
 function renderAnalysis(){
   updateSyncBadge();
@@ -767,20 +737,22 @@ function renderAnalysis(){
   const jqTyTotal = sumTwd(jqTy, fx);
   const remain = Math.max(0, BUDGET_JQ_TY - jqTyTotal);
 
+  // ✅ Budget layout you want:
+  // left big remain, right small spent, then bar, then mom line
   budgetRemain.textContent = `NT$ ${fmtMoney(remain)}`;
-  budgetRemain.style.fontSize = "28px";
+  budgetRemain.style.fontSize = "30px";
   budgetRemain.style.fontWeight = "900";
 
   budgetSpent.textContent = `NT$ ${fmtMoney(jqTyTotal)}`;
-  budgetSpent.parentElement.style.fontSize = "14px";
-  budgetSpent.parentElement.style.fontWeight = "900";
+  budgetSpent.style.fontSize = "13px";
+  budgetSpent.style.fontWeight = "900";
 
   budgetBar.style.width = `${clamp(BUDGET_JQ_TY ? (jqTyTotal/BUDGET_JQ_TY) : 0, 0, 1) * 100}%`;
 
   const momShare = computePersonShareTwd("媽媽", filtered, fx);
-  momLine.textContent = `媽媽支出與分攤：NT$ ${fmtMoney(momShare)}`;
+  momLine.textContent = `媽媽個人支出與分攤：NT$ ${fmtMoney(momShare)}`;
 
-  // Pie: by category totals
+  // Pie by category totals
   const catMap = new Map(EXP_CATEGORIES.map(c=>[c,0]));
   for (const e of filtered){
     const c = EXP_CATEGORIES.includes(e.category) ? e.category : "其他";
@@ -788,7 +760,7 @@ function renderAnalysis(){
   }
   const labels = Array.from(catMap.entries()).filter(([,v])=>v>0).sort((a,b)=>b[1]-a[1]).map(([k])=>k);
   const values = labels.map(k => catMap.get(k));
-  const colors = labels.map(k => categoryColorByName(k));
+  const colors = labels.map(k => PIE_COLOR[k] || PIE_COLOR["其他"]);
   renderPie(labels, values, colors);
 
   // detail cards
@@ -829,7 +801,6 @@ function renderAnalysis(){
             <div class="mt-2 text-2xl font-extrabold" style="color: rgba(7,19,31,.92);">NT$ ${fmtMoney(twd)}</div>
             ${originalLine}
 
-            ${e.note ? `<div class="mt-2 text-sm break-words" style="color: rgba(7,19,31,.78);">${escapeHtml(e.note)}</div>` : ""}
             <div class="mt-2 text-xs font-extrabold" style="color: rgba(7,19,31,.56);">分攤：${escapeHtml(splits)}</div>
           </div>
 
@@ -1039,7 +1010,7 @@ function numOr1(v){
   return n;
 }
 
-/* ===== Expense Edit modal (kept from previous) ===== */
+/* ===== Expense Edit modal ===== */
 let expEditModalEl = null;
 let editingExpenseId = null;
 
@@ -1103,11 +1074,6 @@ function buildExpenseEditModal(){
             <input id="expEItem" class="field-input" />
           </label>
 
-          <label class="field col-span-2">
-            <div class="field-label">備註（選填）</div>
-            <input id="expENote" class="field-input" />
-          </label>
-
           <div class="col-span-2">
             <div class="flex items-center justify-between">
               <div class="field-label">分攤（按鈕點選）</div>
@@ -1169,7 +1135,6 @@ function fillExpenseEditModal(e){
   expEditModalEl.querySelector("#expECurrency").value = normalizeCurrency(e.currency || "TWD");
   expEditModalEl.querySelector("#expEAmount").value = e.amount;
   expEditModalEl.querySelector("#expEItem").value = e.item;
-  expEditModalEl.querySelector("#expENote").value = e.note || "";
 
   const invSet = new Set(String(e.involved||"").split(",").map(s=>s.trim()).filter(Boolean));
   $$("#invChooser .tag").forEach(t => t.classList.toggle("active", invSet.has(t.dataset.value)));
@@ -1185,7 +1150,6 @@ function saveExpenseEditFromModal(){
   const currency = normalizeCurrency(expEditModalEl.querySelector("#expECurrency").value);
   const amount = Number(expEditModalEl.querySelector("#expEAmount").value);
   const item = (expEditModalEl.querySelector("#expEItem").value || "").trim();
-  const note = (expEditModalEl.querySelector("#expENote").value || "").trim();
   const involved = $$("#invChooser .tag.active").map(t=>t.dataset.value).join(",");
 
   if (!item) return alert("請輸入消費名稱");
@@ -1209,7 +1173,6 @@ function saveExpenseEditFromModal(){
     amount,
     twdOverride: twd,
     item,
-    note,
     involved
   };
   save(LS.expenses, all);
@@ -1273,7 +1236,12 @@ async function pullAll(){
   mergePulled(res.rows);
 }
 
-/* ✅ IMPORTANT: Expenses mapping per your rule */
+/* Merge pulled rows.
+   Expenses sheet meaning:
+   - Category: TWD converted amount
+   - Item: expense category
+   - Amount: original amount
+   - Note: expense title (消費名稱)  ✅ */
 function mergePulled(rows){
   const exp = [];
   const it = [];
@@ -1283,10 +1251,6 @@ function mergePulled(rows){
     const r = item.row || {};
 
     if (table === "Expenses"){
-      // Your rule:
-      // Category = TWD converted amount
-      // Item = expense category
-      // Amount = original currency amount
       const twdOverride = Number(r.Category);
       const categoryFromItem = String(r.Item || "").trim();
       const category = EXP_CATEGORIES.includes(categoryFromItem) ? categoryFromItem : "其他";
@@ -1300,18 +1264,13 @@ function mergePulled(rows){
         payer: String(r.Payer || ""),
         location: String(r.Location || ""),
         category,
-        item: String(r.Note ? r.Note : "").trim() ? String(r.Note) : String(r.Payment || ""), // fallback if your "Item name" not stored
-        // ^ 你目前 sheet 欄位沒有「消費名稱」欄，我先把「Payment/Note」做 fallback，避免空白
+        item: String(r.Note || ""),            // ✅ title
         payment: normalizePayment(String(r.Payment || "")) || "現金",
         currency,
         amount: Number.isFinite(amount) ? amount : 0,
         twdOverride: Number.isFinite(twdOverride) ? twdOverride : null,
         involved: String(r.Involved || ""),
-        note: String(r.Note || "")
       });
-
-      // NOTE:
-      // 如果你其實有「消費名稱」但放在別欄，貼我 Expenses 表頭我會把它映射回來。
     }
 
     if (table === "Itinerary"){
@@ -1501,7 +1460,6 @@ function setupPullToRefresh(containers){
   containers.forEach(el => {
     if (!el) return;
     let pulling=false, startY=0, dist=0;
-
     const isAtTop = () => (window.scrollY <= 0);
 
     el.addEventListener("touchstart", (e) => {
@@ -1550,6 +1508,13 @@ function setupPullToRefresh(containers){
     }, { passive:true });
   });
 }
+
+/* ===== Filter modal controls ===== */
+function openFilterModal(){ modalFilter.classList.remove("hidden"); }
+function closeFilterModal(){ modalFilter.classList.add("hidden"); }
+
+/* ===== FX modal holder ===== */
+let fxModalEl = null;
 
 /* ===== Events ===== */
 function attachEvents(){
@@ -1608,7 +1573,7 @@ function attachEvents(){
 
   btnForceSync?.addEventListener("click", async () => {
     try { await syncNow(); }
-    catch(e){ alert("同步失敗：請稍後再試。"); }
+    catch{ alert("同步失敗：請稍後再試。"); }
   });
 
   btnFilter?.addEventListener("click", openFilterModal);
@@ -1622,14 +1587,381 @@ function attachEvents(){
   window.addEventListener("offline", () => { updateSyncBadge(); renderAll(); });
 }
 
+/* ===== Filter modal (full) ===== */
+function clearFilters(){
+  state.filter.who.clear();
+  state.filter.where.clear();
+  state.filter.category.clear();
+  state.filter.pay.clear();
+  buildFilterModal();
+}
+function buildFilterModal(){
+  buildFilterBox(filterWhoBox, PEOPLE, state.filter.who);
+  buildFilterBox(filterWhereBox, WHERE, state.filter.where);
+  buildFilterBox(filterCategoryBox, EXP_CATEGORIES, state.filter.category);
+  buildFilterBox(filterPayBox, PAY, state.filter.pay);
+  renderFilterChips();
+}
+function buildFilterBox(boxEl, options, setRef){
+  if (!boxEl) return;
+  boxEl.innerHTML = "";
+  options.forEach(v => {
+    const b = document.createElement("button");
+    b.className = "tag";
+    b.textContent = v;
+    b.classList.toggle("active", setRef.has(v));
+    b.addEventListener("click", () => {
+      if (setRef.has(v)) setRef.delete(v); else setRef.add(v);
+      b.classList.toggle("active", setRef.has(v));
+      renderFilterChips();
+    });
+    boxEl.appendChild(b);
+  });
+}
+function renderFilterChips(){
+  if (!filterChips) return;
+  const chips = [];
+  for (const v of state.filter.who) chips.push({k:"who", v});
+  for (const v of state.filter.where) chips.push({k:"where", v});
+  for (const v of state.filter.category) chips.push({k:"category", v});
+  for (const v of state.filter.pay) chips.push({k:"pay", v});
+
+  if (!chips.length){
+    filterChips.innerHTML = `<span class="text-xs font-extrabold" style="color: rgba(7,19,31,.56);">未套用篩選</span>`;
+    return;
+  }
+  filterChips.innerHTML = "";
+  chips.forEach(c => {
+    const chip = document.createElement("button");
+    chip.className = "chip";
+    chip.innerHTML = `${escapeHtml(c.v)} <span class="x">×</span>`;
+    chip.addEventListener("click", () => {
+      state.filter[c.k].delete(c.v);
+      buildFilterModal();
+      renderAnalysis();
+    });
+    filterChips.appendChild(chip);
+  });
+}
+
+/* ===== FX modal ===== */
+function openFxModal(){
+  const fx = getFx();
+  if (!fxModalEl) fxModalEl = buildFxModal();
+  fxModalEl.querySelector("#fxNOK").value = fx.NOK;
+  fxModalEl.querySelector("#fxISK").value = fx.ISK;
+  fxModalEl.querySelector("#fxEUR").value = fx.EUR;
+  fxModalEl.querySelector("#fxGBP").value = fx.GBP;
+  fxModalEl.querySelector("#fxAED").value = fx.AED;
+  fxModalEl.classList.remove("hidden");
+}
+function closeFxModal(){ fxModalEl?.classList.add("hidden"); }
+function buildFxModal(){
+  const wrap = document.createElement("div");
+  wrap.id = "modalFx";
+  wrap.className = "modal hidden";
+  wrap.innerHTML = `
+    <div class="modal-sheet">
+      <div class="modal-head">
+        <div class="text-base font-extrabold" style="color: rgba(7,19,31,.92);">匯率設定（固定全旅程）</div>
+        <button class="btn btn-ghost" id="btnFxClose">關閉</button>
+      </div>
+      <div class="modal-body">
+        <div class="text-xs font-extrabold" style="color: rgba(7,19,31,.56);">輸入「1 外幣 = ? TWD」</div>
+        <div class="grid grid-cols-2 gap-3 mt-4">
+          ${fxField("NOK")}
+          ${fxField("ISK")}
+          ${fxField("EUR")}
+          ${fxField("GBP")}
+          ${fxField("AED")}
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn btn-outline" id="btnFxCancel">取消</button>
+        <button class="btn btn-primary" id="btnFxSave">儲存變更</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(wrap);
+  wrap.querySelector("#btnFxClose").addEventListener("click", closeFxModal);
+  wrap.querySelector("#btnFxCancel").addEventListener("click", closeFxModal);
+  wrap.querySelector("#btnFxSave").addEventListener("click", () => {
+    const next = {
+      NOK: numOr1(wrap.querySelector("#fxNOK").value),
+      ISK: numOr1(wrap.querySelector("#fxISK").value),
+      EUR: numOr1(wrap.querySelector("#fxEUR").value),
+      GBP: numOr1(wrap.querySelector("#fxGBP").value),
+      AED: numOr1(wrap.querySelector("#fxAED").value),
+    };
+    setFx(next);
+    closeFxModal();
+    if (state.tab === "analysis") renderAnalysis();
+  });
+  wrap.addEventListener("click", (e) => { if (e.target === wrap) closeFxModal(); });
+  return wrap;
+}
+function fxField(code){
+  return `
+    <label class="field">
+      <div class="field-label">${code} → TWD</div>
+      <input id="fx${code}" class="field-input" inputmode="decimal" placeholder="例如 3.2" />
+    </label>
+  `;
+}
+function numOr1(v){
+  const n = Number(v);
+  if (!Number.isFinite(n) || n <= 0) return 1;
+  return n;
+}
+
+/* ===== Expenses Edit modal (re-used from v6, unchanged logic except sheet mapping already fixed) ===== */
+let expEditModalEl = null;
+let editingExpenseId = null;
+function openExpenseEditModal(id){
+  const all = load(LS.expenses, []);
+  const e = all.find(x => x.id === id);
+  if (!e) return;
+
+  editingExpenseId = id;
+  if (!expEditModalEl) expEditModalEl = buildExpenseEditModal();
+  fillExpenseEditModal(e);
+  expEditModalEl.classList.remove("hidden");
+}
+function closeExpenseEditModal(){
+  expEditModalEl?.classList.add("hidden");
+  editingExpenseId = null;
+}
+function buildExpenseEditModal(){
+  const wrap = document.createElement("div");
+  wrap.id = "modalExpenseEdit";
+  wrap.className = "modal hidden";
+  wrap.innerHTML = `
+    <div class="modal-sheet">
+      <div class="modal-head">
+        <div class="text-base font-extrabold" style="color: rgba(7,19,31,.92);">編輯消費明細</div>
+        <button class="btn btn-ghost" id="btnExpEditClose">關閉</button>
+      </div>
+      <div class="modal-body">
+        <div class="grid grid-cols-2 gap-3">
+          ${selField("expEWho","你是誰", PEOPLE)}
+          ${selField("expEWhere","在哪消費", WHERE)}
+
+          <label class="field col-span-2">
+            <div class="field-label">消費類別</div>
+            <select id="expECategory" class="field-input">
+              ${EXP_CATEGORIES.map(x=>`<option>${escapeHtml(x)}</option>`).join("")}
+            </select>
+          </label>
+
+          ${selField("expEPay","付款方式", PAY)}
+
+          <label class="field">
+            <div class="field-label">幣別</div>
+            <select id="expECurrency" class="field-input">
+              <option value="TWD">TWD</option>
+              <option value="NOK">NOK</option>
+              <option value="ISK">ISK</option>
+              <option value="EUR">EUR</option>
+              <option value="GBP">GBP</option>
+              <option value="AED">AED</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <div class="field-label">金額（原幣）</div>
+            <input id="expEAmount" class="field-input" inputmode="decimal" />
+          </label>
+
+          <label class="field col-span-2">
+            <div class="field-label">消費名稱（存到 Note）</div>
+            <input id="expEItem" class="field-input" />
+          </label>
+
+          <div class="col-span-2">
+            <div class="flex items-center justify-between">
+              <div class="field-label">分攤（按鈕點選）</div>
+              <button class="btn btn-ghost text-sm" id="btnInvAll">全選</button>
+            </div>
+            <div class="mt-2 flex flex-wrap gap-2" id="invChooser"></div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn btn-outline" id="btnExpEditCancel">取消編輯</button>
+        <button class="btn btn-primary" id="btnExpEditSave">儲存變更</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(wrap);
+
+  wrap.querySelector("#btnExpEditClose").addEventListener("click", closeExpenseEditModal);
+  wrap.querySelector("#btnExpEditCancel").addEventListener("click", closeExpenseEditModal);
+
+  wrap.querySelector("#btnInvAll").addEventListener("click", () => {
+    const tags = $$("#invChooser .tag");
+    const activeCount = tags.filter(t=>t.classList.contains("active")).length;
+    const makeActive = activeCount !== PEOPLE.length;
+    tags.forEach(t=>t.classList.toggle("active", makeActive));
+  });
+
+  wrap.querySelector("#btnExpEditSave").addEventListener("click", () => saveExpenseEditFromModal());
+  wrap.addEventListener("click", (e) => { if (e.target === wrap) closeExpenseEditModal(); });
+
+  const invBox = wrap.querySelector("#invChooser");
+  invBox.innerHTML = "";
+  PEOPLE.forEach(p => {
+    const b = document.createElement("button");
+    b.className = "tag";
+    b.textContent = p;
+    b.dataset.value = p;
+    b.addEventListener("click", ()=> b.classList.toggle("active"));
+    invBox.appendChild(b);
+  });
+
+  return wrap;
+}
+function selField(id,label,opts){
+  return `
+    <label class="field">
+      <div class="field-label">${escapeHtml(label)}</div>
+      <select id="${id}" class="field-input">
+        ${opts.map(x=>`<option>${escapeHtml(x)}</option>`).join("")}
+      </select>
+    </label>
+  `;
+}
+function fillExpenseEditModal(e){
+  expEditModalEl.querySelector("#expEWho").value = e.payer;
+  expEditModalEl.querySelector("#expEWhere").value = e.location;
+  expEditModalEl.querySelector("#expECategory").value = EXP_CATEGORIES.includes(e.category) ? e.category : "其他";
+  expEditModalEl.querySelector("#expEPay").value = normalizePayment(e.payment) || PAY[0];
+  expEditModalEl.querySelector("#expECurrency").value = normalizeCurrency(e.currency || "TWD");
+  expEditModalEl.querySelector("#expEAmount").value = e.amount;
+  expEditModalEl.querySelector("#expEItem").value = e.item;
+
+  const invSet = new Set(String(e.involved||"").split(",").map(s=>s.trim()).filter(Boolean));
+  $$("#invChooser .tag").forEach(t => t.classList.toggle("active", invSet.has(t.dataset.value)));
+}
+function saveExpenseEditFromModal(){
+  const id = editingExpenseId;
+  if (!id) return;
+
+  const who = expEditModalEl.querySelector("#expEWho").value;
+  const where = expEditModalEl.querySelector("#expEWhere").value;
+  const category = expEditModalEl.querySelector("#expECategory").value;
+  const pay = expEditModalEl.querySelector("#expEPay").value;
+  const currency = normalizeCurrency(expEditModalEl.querySelector("#expECurrency").value);
+  const amount = Number(expEditModalEl.querySelector("#expEAmount").value);
+  const item = (expEditModalEl.querySelector("#expEItem").value || "").trim();
+  const involved = $$("#invChooser .tag.active").map(t=>t.dataset.value).join(",");
+
+  if (!item) return alert("請輸入消費名稱");
+  if (!Number.isFinite(amount) || amount <= 0) return alert("請輸入正確金額");
+  if (!involved) return alert("請選擇分攤人員");
+
+  const fx = getFx();
+  const twd = (currency === "TWD") ? Math.round(amount) : Math.round(amount * Number(fx[currency] || 1));
+
+  const all = load(LS.expenses, []);
+  const idx = all.findIndex(x => x.id === id);
+  if (idx < 0) return;
+
+  all[idx] = {
+    ...all[idx],
+    payer: who,
+    location: where,
+    category,
+    payment: pay,
+    currency,
+    amount,
+    twdOverride: twd,
+    item,
+    involved
+  };
+  save(LS.expenses, all);
+
+  queueOutbox({ op:"upsert", table:"Expenses", row: toSheetExpense(all[idx]) });
+  maybeAutoSync();
+
+  closeExpenseEditModal();
+  renderAnalysis();
+}
+
+/* ===== outbox/sync/pull (same as previous v7 header) ===== */
+function queueOutbox(op){
+  const box = load(LS.outbox, []);
+  box.push(op);
+  save(LS.outbox, box);
+  updateSyncBadge();
+}
+async function maybeAutoSync(){
+  if (!navigator.onLine) return;
+  const box = load(LS.outbox, []);
+  if (!box.length) return;
+  setSyncBadge("sync", "同步中");
+  try { await syncNow(); } catch { setSyncBadge("warn", "同步失敗"); }
+}
+async function syncNow(){
+  if (!navigator.onLine){ updateSyncBadge(); return; }
+  const box = load(LS.outbox, []);
+  if (!box.length){ updateSyncBadge(); return; }
+
+  setSyncBadge("sync", "同步中");
+  const payload = { action:"sync", ops: box };
+  const res = await postJsonNoPreflight(GAS_URL, payload);
+  if (!res?.ok) throw new Error(res?.error || "sync failed");
+
+  await pullAll();
+  save(LS.outbox, []);
+  updateSyncBadge();
+  renderAll();
+}
+async function pullAll(){
+  const url = `${GAS_URL}?action=pull`;
+  const res = await fetch(url).then(r => r.json());
+  if (!res?.ok || !Array.isArray(res.rows)) throw new Error("pull failed");
+  mergePulled(res.rows);
+}
+async function postJsonNoPreflight(url, payload){
+  const res = await fetch(url, {
+    method:"POST",
+    headers:{ "Content-Type":"text/plain;charset=utf-8" },
+    body: JSON.stringify(payload)
+  });
+  return res.json();
+}
+
+/* ===== viewer + link + pull-to-refresh are already implemented above ===== */
+
+/* ===== Build date strip & basic init ===== */
+function buildSplitChooserInit(){
+  splitChooser.innerHTML = "";
+  PEOPLE.forEach(p => {
+    const b = document.createElement("button");
+    b.className = "tag";
+    b.textContent = p;
+    b.dataset.value = p;
+    b.addEventListener("click", () => b.classList.toggle("active"));
+    splitChooser.appendChild(b);
+  });
+
+  expWho.addEventListener("change", () => {
+    const who = expWho.value || PEOPLE[0];
+    $$("#splitChooser .tag").forEach(b => b.classList.toggle("active", b.dataset.value === who));
+  });
+  const who = expWho.value || PEOPLE[0];
+  $$("#splitChooser .tag").forEach(b => b.classList.toggle("active", b.dataset.value === who));
+}
+function buildItCatChooserInit(){ buildItCatChooser(); }
+
 /* ===== Init ===== */
 (function init(){
   const ui = load(LS.ui, {});
   if (ui.tab && ["itinerary","expenses","analysis"].includes(ui.tab)) state.tab = ui.tab;
 
   buildDateStrip();
-  buildItCatChooser();
-  buildSplitChooser();
+  buildItCatChooserInit();
+  buildSplitChooserInit();
   buildFilterModal();
   attachEvents();
   setupPullToRefresh([pageIt, pageEx, pageAn]);
