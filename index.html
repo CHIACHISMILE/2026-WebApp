@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="2026挪威冰島之旅">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="theme-color" content="#dbeafe">
+  <meta name="theme-color" content="#F5F7FA">
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="https://img.icons8.com/color/180/snowflake.png">
 
@@ -35,27 +35,27 @@
        style="background: rgba(255,255,255,0.6); backdrop-filter: blur(25px); -webkit-backdrop-filter: blur(25px); border-bottom: 1px solid rgba(255,255,255,0.4);
        padding-top: max(20px, env(safe-area-inset-top) + 12px);">
     <div class="flex justify-between items-center">
-      <h1 class="text-xl font-black tracking-tighter text-slate-800 drop-shadow-sm">2026 挪威冰島之旅</h1>
+      <h1 class="text-xl font-black tracking-tighter text-slate-700 drop-shadow-sm">2026 挪威冰島之旅</h1>
       <div class="text-right">
         <button v-if="isSyncing"
-                class="bg-emerald-500 text-white px-3 py-1.5 rounded-full text-xs font-bold shadow-lg flex items-center gap-1 mb-1 ml-auto animate-pulse">
+                class="bg-emerald-400 text-white px-3 py-1.5 rounded-full text-xs font-bold shadow-lg flex items-center gap-1 mb-1 ml-auto animate-pulse">
            <span class="w-2 h-2 bg-white rounded-full animate-ping"></span>
            同步中...
         </button>
         <button v-else-if="syncQueue.length > 0" @click="confirmClearSync"
-                class="bg-amber-500 text-white px-3 py-1.5 rounded-full text-xs font-bold shadow-lg animate-pulse flex items-center gap-1 mb-1 ml-auto">
+                class="bg-amber-400 text-white px-3 py-1.5 rounded-full text-xs font-bold shadow-lg animate-pulse flex items-center gap-1 mb-1 ml-auto">
           待上傳 ({{ syncQueue.length }})
         </button>
         
-        <div class="text-lg font-black text-sky-900 leading-none tracking-wide font-mono mt-1">{{ todayDate }}</div>
-        <div class="text-[10px] text-sky-600 font-bold opacity-80 mt-1 uppercase tracking-[0.2em]">{{ todayWeekday }}</div>
+        <div class="text-lg font-black text-slate-600 leading-none tracking-wide font-mono mt-1">{{ todayDate }}</div>
+        <div class="text-[10px] text-sky-400 font-bold opacity-80 mt-1 uppercase tracking-[0.2em]">{{ todayWeekday }}</div>
       </div>
     </div>
     <div class="flex justify-between items-center mt-4">
       <div class="glass-input px-3 py-1.5 rounded-full text-[10px] font-bold text-slate-500 tracking-wide">AUG 30 - SEP 26</div>
       <div class="flex gap-2">
-        <span v-if="!isOnline" class="bg-slate-500 text-white px-3 py-1 rounded-full text-xs font-bold shadow-md flex items-center gap-1">離線</span>
-        <span v-if="tripStatus" class="bg-gradient-to-r from-sky-400 to-blue-500 text-white px-3 py-1 rounded-full text-xs font-bold shadow-md">{{ tripStatus }}</span>
+        <span v-if="!isOnline" class="bg-slate-400 text-white px-3 py-1 rounded-full text-xs font-bold shadow-md flex items-center gap-1">離線</span>
+        <span v-if="tripStatus" class="bg-gradient-to-r from-sky-300 to-indigo-300 text-white px-4 py-1 rounded-full text-xs font-bold shadow-md tracking-wide">{{ tripStatus }}</span>
       </div>
     </div>
   </div>
@@ -74,7 +74,7 @@
           <button v-for="d in tripDates" :key="d.date" :id="'date-btn-' + d.date" @click="selectDate(d.date)"
                   :class="[
                     'px-4 py-2.5 rounded-2xl text-xs mr-2 border transition-all duration-300 font-bold shadow-sm',
-                    selDate===d.date ? 'bg-sky-600 text-white border-sky-600 shadow-sky-200 shadow-lg scale-105'
+                    selDate===d.date ? 'bg-[#93C5FD] text-white border-[#93C5FD] shadow-lg scale-105'
                                      : 'glass-input text-slate-400 border-transparent hover:bg-white'
                   ]">
             {{ d.short }}
@@ -125,10 +125,11 @@
               </div>
 
               <div
-                class="text-sm mt-3 text-slate-600 whitespace-pre-wrap opacity-90 allow-select break-anywhere"
+                class="text-sm mt-3 text-slate-600 whitespace-pre-wrap opacity-90 allow-select break-anywhere note-content"
                 @click.stop
                 v-if="evt.note"
-              >{{ evt.note }}</div>
+                v-html="formatNote(evt.note)"
+              ></div>
 
               <div class="mt-3 flex gap-2 justify-end swipe-protected">
                 <button @click.stop="openEditItin(evt)"
@@ -144,7 +145,7 @@
           </div>
 
           <button @click="openAddItin"
-                  class="w-full py-4 mt-4 border-2 border-dashed border-sky-200 text-sky-400 rounded-2xl font-bold hover:bg-sky-50 transition swipe-protected">
+                  class="w-full py-4 mt-4 btn-dashed rounded-2xl font-bold hover:shadow-sm transition swipe-protected">
             + 新增行程
           </button>
           <div class="h-10"></div>
@@ -153,7 +154,7 @@
 
       <div v-else-if="tab==='expense'" key="expense">
         <div class="glass-card p-6 space-y-5 shadow-lg swipe-protected">
-          <h3 class="font-bold text-slate-800 text-lg flex items-center gap-2"><span class="w-1 h-6 bg-sky-500 rounded-full"></span>新增消費</h3>
+          <h3 class="font-bold text-slate-800 text-lg flex items-center gap-2"><span class="w-1 h-6 bg-[#93C5FD] rounded-full"></span>新增消費</h3>
 
           <div class="flex gap-3">
             <select v-model="newExp.payer" class="w-1/2 glass-input p-3 rounded-xl text-sm outline-none font-bold">
@@ -198,7 +199,7 @@
             <div class="flex gap-2 flex-wrap">
               <label v-for="m in members" :key="m"
                      class="flex flex-1 justify-center items-center space-x-2 border px-4 py-3 rounded-xl cursor-pointer transition-all duration-200"
-                     :class="newExp.involved.includes(m)?'bg-white border-sky-400 text-sky-700 shadow-md transform -translate-y-0.5':'bg-transparent border-slate-200 text-slate-400'">
+                     :class="newExp.involved.includes(m)?'bg-white border-[#93C5FD] text-sky-700 shadow-md transform -translate-y-0.5':'bg-transparent border-slate-200 text-slate-400'">
                 <input type="checkbox" :value="m" v-model="newExp.involved" class="hidden"><span class="text-sm font-bold">{{m}}</span>
               </label>
             </div>
@@ -216,7 +217,7 @@
           </button>
         </div>
 
-        <div class="bg-gradient-to-br from-[#3b82f6] to-[#6366f1] text-white rounded-3xl p-6 shadow-xl mb-6 relative overflow-hidden ring-1 ring-white/20">
+        <div class="bg-gradient-to-br from-[#93C5FD] to-[#A5B4FC] text-white rounded-3xl p-6 shadow-xl mb-6 relative overflow-hidden ring-1 ring-white/20">
           <div class="absolute -top-10 -right-10 w-48 h-48 bg-white opacity-10 rounded-full blur-3xl"></div>
 
           <div class="border-b border-white/10 pb-3 mb-3 flex justify-between items-center relative z-10">
@@ -322,7 +323,7 @@
                   <span class="text-[10px] text-slate-400 font-mono font-bold uppercase">{{ exp.date }} · {{ exp.time }}</span>
                 </div>
 
-                <div class="mt-2 font-bold text-slate-800 text-base break-anywhere allow-select" @click.stop>
+                <div class="mt-2 font-bold text-slate-700 text-base break-anywhere allow-select" @click.stop>
                   {{ exp.note ? exp.note : exp.item }}
                 </div>
 
@@ -337,7 +338,7 @@
               </div>
 
               <div class="text-right min-w-[96px] swipe-protected">
-                <div class="font-bold text-slate-800 text-lg tracking-tight">
+                <div class="font-bold text-slate-700 text-lg tracking-tight">
                   {{ exp.amount }} <span class="text-[10px] text-slate-400 font-bold">{{ exp.currency }}</span>
                 </div>
                 <div v-if="exp.currency !== 'NTD'" class="text-[10px] text-slate-400 font-mono font-bold mt-1">≈ {{ formatNumber(getAmountTWD(exp)) }}</div>
@@ -411,7 +412,7 @@
             <div class="flex gap-2 mt-1 flex-wrap">
               <button v-for="c in ['景點','飲食','交通','住宿','其他']" :key="c" @click="itinForm.category=c"
                       :class="['flex-1 min-w-[3rem] py-2 rounded-xl text-xs font-bold border transition',
-                               itinForm.category===c ? 'bg-sky-500 text-white border-sky-500 shadow-md' : 'bg-white text-slate-500 border-slate-200']">
+                               itinForm.category===c ? 'bg-[#93C5FD] text-white border-[#93C5FD] shadow-md' : 'bg-white text-slate-500 border-slate-200']">
                 {{c}}
               </button>
             </div>
@@ -442,7 +443,7 @@
             <input v-model="itinForm.link" class="w-full glass-input p-3 rounded-xl mt-1 outline-none text-sm text-blue-600" placeholder="https://...">
           </div>
           <div>
-            <label class="text-[10px] font-bold text-slate-400 uppercase">備註</label>
+            <label class="text-[10px] font-bold text-slate-400 uppercase">備註 (支援 Markdown 連結 [文字](url))</label>
             <textarea v-model="itinForm.note" rows="3" class="w-full glass-input p-3 rounded-xl mt-1 outline-none text-sm" placeholder="備註事項..."></textarea>
           </div>
         </div>
@@ -502,7 +503,7 @@
           <div class="flex gap-2 flex-wrap">
             <label v-for="m in members" :key="m"
                    class="flex flex-1 justify-center items-center space-x-2 border px-4 py-3 rounded-xl cursor-pointer transition-all duration-200"
-                   :class="(editExpForm.involved || []).includes(m)?'bg-white border-sky-400 text-sky-700 shadow-md transform -translate-y-0.5':'bg-transparent border-slate-200 text-slate-400'">
+                   :class="(editExpForm.involved || []).includes(m)?'bg-white border-[#93C5FD] text-sky-700 shadow-md transform -translate-y-0.5':'bg-transparent border-slate-200 text-slate-400'">
               <input type="checkbox" :value="m" v-model="editExpForm.involved" class="hidden"><span class="text-sm font-bold">{{m}}</span>
             </label>
           </div>
