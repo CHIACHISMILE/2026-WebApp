@@ -1,22 +1,20 @@
 /* =========================================================
- * Travel Web App (Frontend) - app.js (matched to your index.html)
- * - Sync/Pull with GAS
- * - Offline outbox
- * - Pending highlight (orange dashed) ONLY when offline + not uploaded
- * - Pull-to-refresh (page container)
- * - Analysis: pie + list + settlement
- * - Filter modal: data-filter-group="who|where|category|pay"
- * - Image viewer: pan/zoom + pinch + swipe-down close
+ * 2026 冰島挪威之旅 - app.js (Nordic Apple-like Edition)
+ * - Works with your index.html unchanged
+ * - Offline outbox + sync/pull to GAS
+ * - Date normalization (fix old data not showing)
+ * - Analysis: pie by Category (aggregated)
+ * - Expenses page: input only, edit/delete ONLY in analysis
+ * - Correct currency display: Big = NT$ converted, small = original currency
  * ========================================================= */
 
 // ====================== CONFIG ======================
 const GAS_URL = "https://script.google.com/macros/s/AKfycbzfX8f3-CcY6X-nu7Sm545Xk5ysHRrWvwqWxBV0-YGX3Ss3ShJM6r9eDnXcoBNwBULhxw/exec";
 const DRIVE_FOLDER_ID = "10ogmnlqLreB_PzSwyuQGtKzO759NVF3M";
 
-const TRIP_NAME = "2026冰島挪威之旅";
-const TRIP_RANGE_TEXT = "2026/08/30–09/26";
 const TRIP_START = "2026-08-30";
-const TRIP_END = "2026-09-26";
+const TRIP_END   = "2026-09-26";
+const BUDGET_JQ_TY = 500000;
 
 const PEOPLE = ["家齊", "亭穎", "媽媽"];
 const WHERE = ["臺灣", "挪威", "冰島", "杜拜", "英國"];
@@ -27,79 +25,28 @@ const EXP_CATEGORIES = [
   "紀念品","門票","其他"
 ];
 const PAY = ["現金","信用卡－國泰","信用卡–永豐","信用卡–元大"];
-const CURRENCIES = ["TWD","NOK","ISK","EUR","GBP","AED"];
 
 const IT_CATEGORIES = ["景點","飲食","交通","住宿","其他"];
-const IT_CAT_COLORS = {
-  "景點": "rgba(191,233,255,0.20)",
-  "飲食": "rgba(94,234,212,0.16)",
-  "交通": "rgba(255,255,255,0.10)",
-  "住宿": "rgba(217,243,255,0.14)",
-  "其他": "rgba(255,255,255,0.08)"
-};
 
-const BUDGET_JQ_TY = 500000; // NTD
-
-// ====================== STORAGE KEYS ======================
+// ====================== STORAGE ======================
 const LS = {
-  itinerary: "tripapp_itinerary_v4",
-  expenses: "tripapp_expenses_v4",
-  fx: "tripapp_fx_v1",
-  outbox: "tripapp_outbox_v4",
-  ui: "tripapp_ui_v1"
+  itinerary: "tripapp_itinerary_v5",
+  expenses:  "tripapp_expenses_v5",
+  fx:        "tripapp_fx_v1",
+  outbox:    "tripapp_outbox_v5",
+  ui:        "tripapp_ui_v2"
 };
 
-// ====================== UTILS ======================
+// ====================== DOM ======================
 const $ = (q) => document.querySelector(q);
 const $$ = (q) => Array.from(document.querySelectorAll(q));
 
-function load(key, fallback) {
-  try { return JSON.parse(localStorage.getItem(key) || "") ?? fallback; }
-  catch { return fallback; }
-}
-function save(key, value) { localStorage.setItem(key, JSON.stringify(value)); }
-
-function uid(prefix="X") {
-  const t = new Date().toISOString().replace(/[:.]/g, "-");
-  const rand = Math.random().toString(16).slice(2,8);
-  return `${prefix}-${t}-${rand}`;
-}
-
-function escapeHtml_(s){
-  return String(s ?? "")
-    .replaceAll("&","&amp;")
-    .replaceAll("<","&lt;")
-    .replaceAll(">","&gt;")
-    .replaceAll('"',"&quot;")
-    .replaceAll("'","&#039;");
-}
-function fmtMoney_(n){ return Number(n||0).toLocaleString("zh-Hant-TW"); }
-
-function parseLocalDate(yyyy_mm_dd) {
-  const [y,m,d] = String(yyyy_mm_dd).split("-").map(Number);
-  return new Date(y, m-1, d, 12, 0, 0);
-}
-function fmtDate(d) {
-  const y = d.getFullYear();
-  const m = String(d.getMonth()+1).padStart(2,"0");
-  const day = String(d.getDate()).padStart(2,"0");
-  return `${y}-${m}-${day}`;
-}
-function weekdayZh(d) { return ["日","一","二","三","四","五","六"][d.getDay()]; }
-function daysBetween(a,b) {
-  const ms = (parseLocalDate(fmtDate(b)).getTime() - parseLocalDate(fmtDate(a)).getTime());
-  return Math.round(ms / 86400000);
-}
-function clamp(n, min, max){ return Math.max(min, Math.min(max, n)); }
-
-// ====================== DOM REFS (matched to your HTML) ======================
-// Header
 const elTripDay = $("#tripDayLabel");
 const elToday = $("#todayLabel");
 const elSync = $("#syncStatus");
 const btnForceSync = $("#btnForceSync");
 
-// Tabs / pages
+// Tabs & pages
 const tabButtons = $$(".tab");
 const pageIt = $("#page-itinerary");
 const pageEx = $("#page-expenses");
@@ -110,7 +57,7 @@ const dateStrip = $("#dateStrip");
 const selectedDateLabel = $("#selectedDateLabel");
 const selectedDayIndexLabel = $("#selectedDayIndexLabel");
 
-// Itinerary
+// Itinerary list
 const itineraryList = $("#itineraryList");
 const btnAddItinerary = $("#btnAddItinerary");
 const btnAddItineraryBottom = $("#btnAddItineraryBottom");
@@ -124,16 +71,16 @@ const btnSaveIt = $("#btnSaveIt");
 const itStart = $("#itStart");
 const itEnd = $("#itEnd");
 const itCatChooser = $("#itCatChooser");
-const itTitle = $("#itTitle");      // contenteditable
-const itAddress = $("#itAddress");  // input
-const itNote = $("#itNote");        // contenteditable
-const itImage = $("#itImage");      // file input
+const itTitle = $("#itTitle");
+const itAddress = $("#itAddress");
+const itNote = $("#itNote");
+const itImage = $("#itImage");
 const itImagePreview = $("#itImagePreview");
 const btnOpenMap = $("#btnOpenMap");
 const btnLinkTitle = $("#btnLinkTitle");
 const btnLinkNote = $("#btnLinkNote");
 
-// Expenses
+// Expenses input
 const expWho = $("#expWho");
 const expWhere = $("#expWhere");
 const expCategory = $("#expCategory");
@@ -145,8 +92,6 @@ const expNote = $("#expNote");
 const btnAddExpense = $("#btnAddExpense");
 const btnSplitAll = $("#btnSplitAll");
 const splitChooser = $("#splitChooser");
-const expenseList = $("#expenseList");
-const btnExpFilterQuick = $("#btnExpFilterQuick");
 
 // Analysis
 const btnFx = $("#btnFx");
@@ -177,17 +122,109 @@ const btnResetViewer = $("#btnResetViewer");
 const viewerStage = $("#viewerStage");
 const viewerImg = $("#viewerImg");
 
+// ====================== UTIL ======================
+function load(key, fallback){
+  try { return JSON.parse(localStorage.getItem(key) || "") ?? fallback; }
+  catch { return fallback; }
+}
+function save(key, value){ localStorage.setItem(key, JSON.stringify(value)); }
+
+function escapeHtml(s){
+  return String(s ?? "")
+    .replaceAll("&","&amp;")
+    .replaceAll("<","&lt;")
+    .replaceAll(">","&gt;")
+    .replaceAll('"',"&quot;")
+    .replaceAll("'","&#039;");
+}
+function fmtMoney(n){ return Number(n||0).toLocaleString("zh-Hant-TW"); }
+
+function uid(prefix="X"){
+  const t = new Date().toISOString().replace(/[:.]/g,"-");
+  const r = Math.random().toString(16).slice(2,8);
+  return `${prefix}-${t}-${r}`;
+}
+
+function parseLocalDate(yyyy_mm_dd){
+  const [y,m,d] = String(yyyy_mm_dd).split("-").map(Number);
+  return new Date(y, m-1, d, 12, 0, 0);
+}
+function fmtDate(d){
+  const y = d.getFullYear();
+  const m = String(d.getMonth()+1).padStart(2,"0");
+  const day = String(d.getDate()).padStart(2,"0");
+  return `${y}-${m}-${day}`;
+}
+function weekdayZh(d){ return ["日","一","二","三","四","五","六"][d.getDay()]; }
+function daysBetween(a,b){
+  const ms = (parseLocalDate(fmtDate(b)).getTime() - parseLocalDate(fmtDate(a)).getTime());
+  return Math.round(ms/86400000);
+}
+function clamp(n,min,max){ return Math.max(min, Math.min(max,n)); }
+
+/** ✅ normalize anything (Date/ISO/yyyy-mm-dd) into yyyy-mm-dd */
+function normalizeDateKey(v){
+  if (!v) return "";
+  if (typeof v === "string"){
+    const m = v.match(/^(\d{4}-\d{2}-\d{2})/);
+    if (m) return m[1];
+    // try Date.parse
+    const t = Date.parse(v);
+    if (!Number.isNaN(t)) return fmtDate(new Date(t));
+    return v;
+  }
+  if (Object.prototype.toString.call(v) === "[object Date]" && !isNaN(v.getTime())){
+    return fmtDate(v);
+  }
+  // fallback
+  try{
+    const t = Date.parse(String(v));
+    if (!Number.isNaN(t)) return fmtDate(new Date(t));
+  }catch{}
+  return String(v);
+}
+
+// ====================== CATEGORY COLOR TAGS ======================
+function itTagClass(cat){
+  return ({
+    "景點":"tag-it-sight",
+    "飲食":"tag-it-food",
+    "交通":"tag-it-traffic",
+    "住宿":"tag-it-stay",
+    "其他":"tag-it-other",
+  })[cat] || "tag-it-other";
+}
+
+function expBucket(cat){
+  if (["早餐","午餐","晚餐","零食"].includes(cat)) return "food";
+  if (cat === "住宿") return "stay";
+  if (cat.startsWith("交通（")) return "traffic";
+  if (["門票"].includes(cat)) return "ticket";
+  if (["紀念品"].includes(cat)) return "shop";
+  return "other";
+}
+function expTagClass(cat){
+  const b = expBucket(cat);
+  return ({
+    food:"tag-exp-food",
+    stay:"tag-exp-stay",
+    traffic:"tag-exp-traffic",
+    ticket:"tag-exp-ticket",
+    shop:"tag-exp-shop",
+    other:"tag-exp-other",
+  })[b] || "tag-exp-other";
+}
+
 // ====================== STATE ======================
 const tripStartD = parseLocalDate(TRIP_START);
 const tripEndD = parseLocalDate(TRIP_END);
 const tripDays = daysBetween(tripStartD, tripEndD) + 1;
-function tripDayIndexFor(dateD){ return daysBetween(tripStartD, dateD) + 1; }
+function tripDayIndexFor(d){ return daysBetween(tripStartD, d) + 1; }
 
 let state = {
   tab: "itinerary",
-  selectedDate: fmtDate(tripStartD),
+  selectedDate: TRIP_START,
 
-  // itinerary draft
   itDraftCat: IT_CATEGORIES[0],
   itDraftImageDataUrl: "",
   itDraftDriveFileId: "",
@@ -195,10 +232,6 @@ let state = {
   itDraftLink: "",
   editingItId: null,
 
-  // expenses edit
-  editingExpenseId: null,
-
-  // filter
   filter: {
     who: new Set(),
     where: new Set(),
@@ -206,140 +239,92 @@ let state = {
     pay: new Set()
   },
 
-  // viewer
-  viewer: { scale: 1, tx: 0, ty: 0 },
-
-  // pending ids from outbox
   pending: { Expenses: new Set(), Itinerary: new Set() },
+  pieChart: null,
 
-  pieChart: null
+  viewer: { scale: 1, tx: 0, ty: 0 }
 };
 
-// ====================== INIT ======================
-hydrateUI_();
-renderHeader_();
-buildDateStrip_();
-buildItCatChooser_();
-buildSplitChooser_();
-buildFilterModal_();
-attachEvents_();
-setupEdgeGestures_();
-setupPullToRefresh_([pageIt, pageEx, pageAn]);
-setupViewer_();
-updateSyncBadge_();
-renderAll_();
-
-if (navigator.onLine) {
-  pullAll_().then(renderAll_).catch(()=>{});
-}
-
-window.addEventListener("online", () => { updateSyncBadge_(); maybeAutoSync_(); });
-window.addEventListener("offline", () => { updateSyncBadge_(); renderAll_(); });
-setInterval(renderHeader_, 60*1000);
-
-// ====================== HEADER ======================
-function renderHeader_(){
-  const now = new Date();
-  if (elToday) elToday.textContent = `${now.getMonth()+1}/${now.getDate()}（${weekdayZh(now)}）`;
-
-  const todayLocal = parseLocalDate(fmtDate(now));
-  if (todayLocal < tripStartD) {
-    if (elTripDay) elTripDay.textContent = `倒數 ${daysBetween(todayLocal, tripStartD)} 日`;
-  } else if (todayLocal > tripEndD) {
-    if (elTripDay) elTripDay.textContent = `旅行已結束`;
-  } else {
-    if (elTripDay) elTripDay.textContent = `第 ${tripDayIndexFor(todayLocal)} 日`;
-  }
-}
-
-// ====================== SYNC BADGE (rules you requested) ======================
-function setSyncBadge_(mode, text){
-  const dotClass = {
-    ok: "dot-ok",
-    sync: "dot-sync",
-    offline: "dot-offline",
-    warn: "dot-wait"
-  }[mode] || "dot-ok";
+// ====================== SYNC BADGE ======================
+function setSyncBadge(mode, text){
+  const dotClass = { ok:"dot-ok", sync:"dot-sync", offline:"dot-offline", warn:"dot-wait" }[mode] || "dot-ok";
   if (!elSync) return;
-  elSync.innerHTML = `<span class="dot ${dotClass}"></span><span class="text-sm">${escapeHtml_(text)}</span>`;
+  elSync.innerHTML = `<span class="dot ${dotClass}"></span><span class="text-sm">${escapeHtml(text)}</span>`;
 }
 
-function computePendingFromOutbox_(){
+function computePendingFromOutbox(){
   const box = load(LS.outbox, []);
   const exp = new Set();
   const it = new Set();
-  for (const op of box) {
-    const table = op.table;
-    const verb = String(op.op||"").toLowerCase();
-    if (verb === "upsert") {
-      const id = String(op?.row?.ID || "").trim();
-      if (!id) continue;
-      if (table === "Expenses") exp.add(id);
-      if (table === "Itinerary") it.add(id);
-    }
+  for (const op of box){
+    if (String(op.op||"").toLowerCase() !== "upsert") continue;
+    const id = String(op?.row?.ID || "").trim();
+    if (!id) continue;
+    if (op.table === "Expenses") exp.add(id);
+    if (op.table === "Itinerary") it.add(id);
   }
   state.pending.Expenses = exp;
   state.pending.Itinerary = it;
 }
 
-function updateSyncBadge_(){
-  computePendingFromOutbox_();
+function updateSyncBadge(){
+  computePendingFromOutbox();
   const box = load(LS.outbox, []);
   const hasPending = box.length > 0;
 
-  if (!navigator.onLine) {
-    // ✅ only offline shows 待上傳
-    if (hasPending) setSyncBadge_("warn", "待上傳");
-    else setSyncBadge_("offline", "離線");
+  if (!navigator.onLine){
+    if (hasPending) setSyncBadge("warn", "待上傳");
+    else setSyncBadge("offline", "離線");
     return;
   }
-
-  // ✅ online never shows 待上傳（你要求的）
-  setSyncBadge_("ok", "已同步");
+  setSyncBadge("ok", "已同步");
 }
 
-// ====================== UI HYDRATE ======================
-function hydrateUI_(){
-  // keep existing <select> options from HTML; no need to fill.
-  // defaults
-  if (expCurrency) expCurrency.value = "TWD";
-  if (expWho && !expWho.value) expWho.value = PEOPLE[0];
+// ====================== HEADER ======================
+function renderHeader(){
+  const now = new Date();
+  if (elToday) elToday.textContent = `${now.getMonth()+1}/${now.getDate()}（${weekdayZh(now)}）`;
+
+  const todayLocal = parseLocalDate(fmtDate(now));
+  if (todayLocal < tripStartD) elTripDay.textContent = `倒數 ${daysBetween(todayLocal, tripStartD)} 日`;
+  else if (todayLocal > tripEndD) elTripDay.textContent = `旅行已結束`;
+  else elTripDay.textContent = `第 ${tripDayIndexFor(todayLocal)} 日`;
 }
 
 // ====================== DATE STRIP ======================
-function buildDateStrip_(){
+function buildDateStrip(){
   if (!dateStrip) return;
   dateStrip.innerHTML = "";
-  for (let i=0; i<tripDays; i++){
+  for (let i=0;i<tripDays;i++){
     const d = new Date(tripStartD.getTime() + i*86400000);
     const key = fmtDate(d);
     const btn = document.createElement("button");
     btn.className = "date-chip";
     btn.dataset.date = key;
     btn.textContent = `${d.getMonth()+1}/${d.getDate()} ${weekdayZh(d)}`;
-    btn.addEventListener("click", () => setSelectedDate_(key, true));
+    btn.addEventListener("click", () => setSelectedDate(key, true));
     dateStrip.appendChild(btn);
   }
-  setSelectedDate_(state.selectedDate, true);
+  setSelectedDate(state.selectedDate, true);
 }
 
-function setSelectedDate_(yyyy_mm_dd, scrollIntoView){
-  state.selectedDate = yyyy_mm_dd;
-  $$(".date-chip").forEach(b => b.classList.toggle("active", b.dataset.date === yyyy_mm_dd));
+function setSelectedDate(key, scroll){
+  state.selectedDate = normalizeDateKey(key);
+  $$(".date-chip").forEach(b => b.classList.toggle("active", b.dataset.date === state.selectedDate));
 
-  const d = parseLocalDate(yyyy_mm_dd);
+  const d = parseLocalDate(state.selectedDate);
   if (selectedDateLabel) selectedDateLabel.textContent = `${d.getMonth()+1}/${d.getDate()}（${weekdayZh(d)}）`;
   if (selectedDayIndexLabel) selectedDayIndexLabel.textContent = `Day ${tripDayIndexFor(d)}`;
 
-  if (scrollIntoView) {
-    const active = $(`.date-chip[data-date="${yyyy_mm_dd}"]`);
-    active?.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+  if (scroll){
+    const active = $(`.date-chip[data-date="${state.selectedDate}"]`);
+    active?.scrollIntoView({ behavior:"smooth", inline:"center", block:"nearest" });
   }
-  renderItinerary_();
+  renderItinerary();
 }
 
-// ====================== TAB ======================
-function setTab_(tab){
+// ====================== TABS ======================
+function setTab(tab){
   state.tab = tab;
   tabButtons.forEach(b => b.classList.toggle("active", b.dataset.tab === tab));
 
@@ -349,16 +334,16 @@ function setTab_(tab){
 
   save(LS.ui, { ...(load(LS.ui, {})), tab });
 
-  if (tab === "analysis") renderAnalysis_();
+  if (tab === "analysis") renderAnalysis();
 }
 
 // ====================== ITINERARY ======================
-function buildItCatChooser_(){
+function buildItCatChooser(){
   if (!itCatChooser) return;
   itCatChooser.innerHTML = "";
   IT_CATEGORIES.forEach((cat, idx) => {
     const b = document.createElement("button");
-    b.className = "tag";
+    b.className = `tag ${itTagClass(cat)}`;
     b.textContent = cat;
     b.addEventListener("click", () => {
       state.itDraftCat = cat;
@@ -366,12 +351,12 @@ function buildItCatChooser_(){
         .forEach(x => x.classList.toggle("active", x.textContent === cat));
     });
     itCatChooser.appendChild(b);
-    if (idx === 0) b.classList.add("active");
+    if (idx===0) b.classList.add("active");
   });
   state.itDraftCat = IT_CATEGORIES[0];
 }
 
-function openItModal_(editId=null){
+function openItModal(editId=null){
   state.editingItId = editId;
   modalItinerary?.classList.remove("hidden");
 
@@ -382,17 +367,16 @@ function openItModal_(editId=null){
   if (itImage) itImage.value = "";
   if (itImagePreview) itImagePreview.innerHTML = "";
 
-  if (!editId) {
-    if (itModalTitle) itModalTitle.textContent = "新增行程";
-    if (btnSaveIt) btnSaveIt.textContent = "新增行程";
-    if (itStart) itStart.value = "09:00";
-    if (itEnd) itEnd.value = "10:00";
+  if (!editId){
+    itModalTitle.textContent = "新增行程";
+    btnSaveIt.textContent = "新增行程";
+    itStart.value = "09:00";
+    itEnd.value = "10:00";
     state.itDraftCat = IT_CATEGORIES[0];
-    Array.from(itCatChooser?.querySelectorAll(".tag") || [])
-      .forEach((x,i) => x.classList.toggle("active", i===0));
-    if (itTitle) itTitle.innerHTML = "";
-    if (itAddress) itAddress.value = "";
-    if (itNote) itNote.innerHTML = "";
+    Array.from(itCatChooser.querySelectorAll(".tag")).forEach((x,i)=>x.classList.toggle("active", i===0));
+    itTitle.innerHTML = "";
+    itAddress.value = "";
+    itNote.innerHTML = "";
     return;
   }
 
@@ -400,38 +384,54 @@ function openItModal_(editId=null){
   const it = all.find(x => x.id === editId);
   if (!it) return;
 
-  if (itModalTitle) itModalTitle.textContent = "編輯行程";
-  if (btnSaveIt) btnSaveIt.textContent = "儲存變更";
+  itModalTitle.textContent = "編輯行程";
+  btnSaveIt.textContent = "儲存變更";
 
-  if (itStart) itStart.value = it.start || "";
-  if (itEnd) itEnd.value = it.end || "";
+  itStart.value = it.start || "";
+  itEnd.value = it.end || "";
   state.itDraftCat = it.category || IT_CATEGORIES[0];
-  Array.from(itCatChooser?.querySelectorAll(".tag") || [])
+  Array.from(itCatChooser.querySelectorAll(".tag"))
     .forEach(x => x.classList.toggle("active", x.textContent === state.itDraftCat));
-  if (itTitle) itTitle.innerHTML = it.title || "";
-  if (itAddress) itAddress.value = it.location || "";
+
+  itTitle.innerHTML = it.title || "";
+  itAddress.value = it.location || "";
   state.itDraftLink = it.link || "";
-  if (itNote) itNote.innerHTML = it.note || "";
+  itNote.innerHTML = it.note || "";
 
   state.itDraftDriveFileId = it.imageId || "";
   state.itDraftDriveUrl = it.image || "";
   state.itDraftImageDataUrl = it.imageDataUrl || "";
 
   const imgSrc = state.itDraftDriveUrl || state.itDraftImageDataUrl;
-  if (imgSrc && itImagePreview) itImagePreview.innerHTML = `<img class="rounded-2xl border border-white/10" src="${imgSrc}" alt="preview" />`;
+  if (imgSrc) itImagePreview.innerHTML = `<img class="rounded-2xl border border-white/10" src="${imgSrc}" alt="preview" />`;
 }
 
-function closeItModal_(){ modalItinerary?.classList.add("hidden"); }
+function closeItModal(){ modalItinerary?.classList.add("hidden"); }
 
-function saveItinerary_(){
-  const start = itStart?.value || "";
-  const end = itEnd?.value || "";
+function toSheetItinerary(it){
+  return {
+    Date: normalizeDateKey(it.date),
+    StatTime: it.start || "",
+    EndTime: it.end || "",
+    Category: it.category || "",
+    Title: it.title || "",
+    Location: it.location || "",
+    Link: it.link || "",
+    Note: it.note || "",
+    Image: it.image || "",
+    ImageID: it.imageId || "",
+    ID: it.id
+  };
+}
+
+function saveItinerary(){
+  const start = itStart.value || "";
+  const end = itEnd.value || "";
   const category = state.itDraftCat;
 
-  const titleHtml = (itTitle?.innerHTML || "").trim();
-  const location = (itAddress?.value || "").trim();
-  const noteHtml = (itNote?.innerHTML || "").trim();
-
+  const titleHtml = (itTitle.innerHTML || "").trim();
+  const location = (itAddress.value || "").trim();
+  const noteHtml = (itNote.innerHTML || "").trim();
   if (!titleHtml) return alert("請輸入標題");
 
   const driveFileId = state.itDraftDriveFileId || "";
@@ -452,83 +452,79 @@ function saveItinerary_(){
   };
 
   let savedRow = null;
-  if (!state.editingItId) {
+  if (!state.editingItId){
     savedRow = { id: uid("IT"), ...base };
     all.push(savedRow);
   } else {
     const idx = all.findIndex(x => x.id === state.editingItId);
-    if (idx >= 0) {
+    if (idx >= 0){
       all[idx] = { ...all[idx], ...base };
       savedRow = all[idx];
     }
   }
 
   save(LS.itinerary, all);
-
-  if (savedRow) {
-    queueOutbox_({ op: "upsert", table: "Itinerary", row: toSheetItinerary_(savedRow) });
-    maybeAutoSync_();
+  if (savedRow){
+    queueOutbox({ op:"upsert", table:"Itinerary", row: toSheetItinerary(savedRow) });
+    maybeAutoSync();
   }
 
-  closeItModal_();
-  renderItinerary_();
+  closeItModal();
+  renderItinerary();
 }
 
-function deleteItinerary_(id){
+function deleteItinerary(id){
   if (!confirm("確定刪除這筆行程？")) return;
   const all = load(LS.itinerary, []);
   const idx = all.findIndex(x => x.id === id);
   if (idx < 0) return;
-
   all.splice(idx, 1);
   save(LS.itinerary, all);
 
-  queueOutbox_({ op: "delete", table: "Itinerary", key: { ID: id }});
-  maybeAutoSync_();
-  renderItinerary_();
+  queueOutbox({ op:"delete", table:"Itinerary", key:{ ID:id }});
+  maybeAutoSync();
+  renderItinerary();
 }
 
-function renderItinerary_(){
-  updateSyncBadge_();
+function renderItinerary(){
+  updateSyncBadge();
 
   const all = load(LS.itinerary, []);
   const items = all
+    .map(x => ({...x, date: normalizeDateKey(x.date)}))
     .filter(x => x.date === state.selectedDate)
     .sort((a,b) => (a.start||"").localeCompare(b.start||""));
 
-  if (!itineraryList) return;
   itineraryList.innerHTML = "";
 
-  if (!items.length) {
-    itineraryList.innerHTML = `<div class="card p-4 text-sm text-slate-200/80">今天還沒有行程。可以按「新增行程」。</div>`;
+  if (!items.length){
+    itineraryList.innerHTML = `<div class="card p-4 text-sm" style="color: rgba(11,18,32,.62);">今天還沒有行程。可以按「新增行程」。</div>`;
     return;
   }
 
   items.forEach(it => {
-    const catBg = IT_CAT_COLORS[it.category] || "rgba(255,255,255,0.08)";
     const time = (it.start || it.end) ? `${it.start||""}–${it.end||""}` : "";
     const imgSrc = it.image || it.imageDataUrl || "";
-
-    const isPendingOffline = (!navigator.onLine) && state.pending.Itinerary.has(it.id);
+    const pendingOffline = (!navigator.onLine) && state.pending.Itinerary.has(it.id);
 
     const card = document.createElement("div");
     card.className = "card p-4";
-    if (isPendingOffline) card.classList.add("pending-card");
+    if (pendingOffline) card.classList.add("pending-card");
 
     card.innerHTML = `
       <div class="flex items-start justify-between gap-3">
         <div class="min-w-0">
           <div class="flex items-center gap-2">
-            <span class="tag" style="background:${catBg}; border-color: rgba(255,255,255,0.16);">${escapeHtml_(it.category)}</span>
-            <span class="text-xs text-slate-300/80">${escapeHtml_(time)}</span>
-            ${isPendingOffline ? `<span class="text-xs pending-badge">待上傳</span>` : ``}
+            <span class="tag ${itTagClass(it.category)}">${escapeHtml(it.category)}</span>
+            <span class="text-xs" style="color: rgba(11,18,32,.52);">${escapeHtml(time)}</span>
+            ${pendingOffline ? `<span class="text-xs pending-badge">待上傳</span>` : ``}
           </div>
-          <div class="mt-2 text-base font-semibold leading-snug break-words">${it.title || ""}</div>
-          ${it.location ? `<div class="mt-2 text-xs text-slate-200/80 break-words">${escapeHtml_(it.location)}</div>` : ""}
+          <div class="mt-2 text-base font-semibold leading-snug break-words" style="color: rgba(11,18,32,.92);">${it.title || ""}</div>
+          ${it.location ? `<div class="mt-2 text-xs break-words" style="color: rgba(11,18,32,.56);">${escapeHtml(it.location)}</div>` : ""}
           ${it.link ? `<div class="mt-2 text-xs">
-              <a href="${escapeHtml_(it.link)}" target="_blank" rel="noopener" class="link-soft">開啟連結</a>
+              <a href="${escapeHtml(it.link)}" target="_blank" rel="noopener" class="link-soft">開啟連結</a>
             </div>` : ""}
-          ${it.note ? `<div class="mt-2 text-sm text-slate-100/90 break-words">${it.note}</div>` : ""}
+          ${it.note ? `<div class="mt-2 text-sm break-words" style="color: rgba(11,18,32,.78);">${it.note}</div>` : ""}
           ${imgSrc ? `<div class="mt-3">
               <img class="rounded-2xl border border-white/10 cursor-pointer"
                    data-view-src="${imgSrc}"
@@ -542,35 +538,18 @@ function renderItinerary_(){
       </div>
     `;
 
-    card.querySelector('[data-act="edit"]').addEventListener("click", () => openItModal_(it.id));
-    card.querySelector('[data-act="del"]').addEventListener("click", () => deleteItinerary_(it.id));
+    card.querySelector('[data-act="edit"]').addEventListener("click", () => openItModal(it.id));
+    card.querySelector('[data-act="del"]').addEventListener("click", () => deleteItinerary(it.id));
 
     const imgEl = card.querySelector('img[data-view-src]');
-    if (imgEl) imgEl.addEventListener("click", () => openViewer_(imgEl.dataset.viewSrc));
+    if (imgEl) imgEl.addEventListener("click", () => openViewer(imgEl.dataset.viewSrc));
 
     itineraryList.appendChild(card);
   });
 }
 
-function toSheetItinerary_(it){
-  return {
-    Date: it.date,
-    StatTime: it.start || "",
-    EndTime: it.end || "",
-    Category: it.category || "",
-    Title: it.title || "",
-    Location: it.location || "",
-    Link: it.link || "",
-    Note: it.note || "",
-    Image: it.image || "",
-    ImageID: it.imageId || "",
-    ID: it.id
-  };
-}
-
-// ====================== EXPENSES ======================
-function buildSplitChooser_(){
-  if (!splitChooser) return;
+// ====================== EXPENSE INPUT ONLY ======================
+function buildSplitChooser(){
   splitChooser.innerHTML = "";
   PEOPLE.forEach(p => {
     const b = document.createElement("button");
@@ -581,25 +560,43 @@ function buildSplitChooser_(){
     splitChooser.appendChild(b);
   });
 
-  expWho?.addEventListener("change", () => setSplitDefault_(expWho.value));
-  setSplitDefault_(expWho?.value || PEOPLE[0]);
+  expWho.addEventListener("change", () => setSplitDefault(expWho.value));
+  setSplitDefault(expWho.value || PEOPLE[0]);
 }
 
-function setSplitDefault_(who){
+function setSplitDefault(who){
   $$("#splitChooser .tag").forEach(b => b.classList.toggle("active", b.dataset.value === who));
 }
-function getSplitSelected_(){ return $$("#splitChooser .tag.active").map(b => b.dataset.value); }
+function getSplitSelected(){
+  return $$("#splitChooser .tag.active").map(b => b.dataset.value);
+}
 
-function addExpense_(){
-  const who = expWho?.value || PEOPLE[0];
-  const where = expWhere?.value || WHERE[0];
-  const category = expCategory?.value || EXP_CATEGORIES[0];
-  const pay = expPay?.value || PAY[0];
-  const currency = expCurrency?.value || "TWD";
-  const amount = Number(expAmount?.value);
-  const title = (expTitle?.value || "").trim();
-  const note = (expNote?.value || "").trim();
-  const split = getSplitSelected_();
+function toSheetExpense(e){
+  return {
+    Date: normalizeDateKey(e.date),
+    Payer: e.payer,
+    Location: e.location,
+    Category: e.category,
+    Item: e.item,
+    Payment: e.payment,
+    Currency: e.currency,
+    Amount: e.amount,
+    Involved: e.involved, // comma-separated
+    Note: e.note || "",
+    ID: e.id
+  };
+}
+
+function addExpense(){
+  const who = expWho.value || PEOPLE[0];
+  const where = expWhere.value || WHERE[0];
+  const category = expCategory.value || EXP_CATEGORIES[0];
+  const pay = expPay.value || PAY[0];
+  const currency = expCurrency.value || "TWD";
+  const amount = Number(expAmount.value);
+  const title = (expTitle.value || "").trim();
+  const note = (expNote.value || "").trim();
+  const split = getSplitSelected();
 
   if (!title) return alert("請輸入消費名稱");
   if (!Number.isFinite(amount) || amount <= 0) return alert("請輸入正確金額");
@@ -615,7 +612,7 @@ function addExpense_(){
     payment: pay,
     currency,
     amount,
-    involved: split.join(","), // ✅ comma
+    involved: split.join(","),
     note
   };
 
@@ -623,183 +620,50 @@ function addExpense_(){
   all.push(row);
   save(LS.expenses, all);
 
-  queueOutbox_({ op: "upsert", table: "Expenses", row: toSheetExpense_(row) });
+  queueOutbox({ op:"upsert", table:"Expenses", row: toSheetExpense(row) });
+  maybeAutoSync();
 
-  if (expAmount) expAmount.value = "";
-  if (expTitle) expTitle.value = "";
-  if (expNote) expNote.value = "";
-  setSplitDefault_(who);
+  expAmount.value = "";
+  expTitle.value = "";
+  expNote.value = "";
+  setSplitDefault(who);
 
-  renderExpenses_();
-  if (state.tab === "analysis") renderAnalysis_();
-  maybeAutoSync_();
+  // analysis page will show details
+  if (state.tab === "analysis") renderAnalysis();
+  updateSyncBadge();
 }
 
-function editExpense_(id){
-  const all = load(LS.expenses, []);
-  const e = all.find(x => x.id === id);
-  if (!e) return;
+// ====================== FX (TWD conversion) ======================
+function getFxMap(){ return load(LS.fx, {}); }
 
-  state.editingExpenseId = id;
-  setTab_("expenses");
+/** Convert expense row to TWD (rounded), using fxMap (key like "YYYY-MM-DD:NOK") */
+function toTwd(e, fxMap){
+  const amt = Number(e.amount || 0);
+  if (!e.currency || e.currency === "TWD") return Math.round(amt);
 
-  expWho.value = e.payer;
-  expWhere.value = e.location;
-  expCategory.value = e.category;
-  expPay.value = e.payment;
-  expCurrency.value = e.currency;
-  expAmount.value = e.amount;
-  expTitle.value = e.item;
-  expNote.value = e.note || "";
+  const dateKey = normalizeDateKey(e.date);
+  const exactKey = `${dateKey}:${e.currency}`;
+  let fx = Number(fxMap[exactKey] || 0);
 
-  const splits = String(e.involved||"").split(",").map(s=>s.trim()).filter(Boolean);
-  $$("#splitChooser .tag").forEach(b => b.classList.toggle("active", splits.includes(b.dataset.value)));
-
-  if (btnAddExpense) btnAddExpense.textContent = "儲存變更";
-}
-
-function saveExpenseEdit_(){
-  const id = state.editingExpenseId;
-  if (!id) return;
-
-  const all = load(LS.expenses, []);
-  const idx = all.findIndex(x => x.id === id);
-  if (idx < 0) return;
-
-  const who = expWho?.value || PEOPLE[0];
-  const where = expWhere?.value || WHERE[0];
-  const category = expCategory?.value || EXP_CATEGORIES[0];
-  const pay = expPay?.value || PAY[0];
-  const currency = expCurrency?.value || "TWD";
-  const amount = Number(expAmount?.value);
-  const title = (expTitle?.value || "").trim();
-  const note = (expNote?.value || "").trim();
-  const split = getSplitSelected_();
-
-  if (!title) return alert("請輸入消費名稱");
-  if (!Number.isFinite(amount) || amount <= 0) return alert("請輸入正確金額");
-  if (!split.length) return alert("請選擇分攤人員");
-
-  all[idx] = {
-    ...all[idx],
-    date: state.selectedDate,
-    payer: who,
-    location: where,
-    category,
-    item: title,
-    payment: pay,
-    currency,
-    amount,
-    involved: split.join(","), // ✅ comma
-    note
-  };
-  save(LS.expenses, all);
-
-  queueOutbox_({ op:"upsert", table:"Expenses", row: toSheetExpense_(all[idx]) });
-
-  state.editingExpenseId = null;
-  if (btnAddExpense) btnAddExpense.textContent = "確認記帳";
-  if (expAmount) expAmount.value = "";
-  if (expTitle) expTitle.value = "";
-  if (expNote) expNote.value = "";
-  setSplitDefault_(expWho?.value || PEOPLE[0]);
-
-  renderExpenses_();
-  if (state.tab === "analysis") renderAnalysis_();
-  maybeAutoSync_();
-}
-
-function deleteExpense_(id){
-  if (!confirm("確定刪除這筆消費？")) return;
-  const all = load(LS.expenses, []);
-  const idx = all.findIndex(x => x.id === id);
-  if (idx < 0) return;
-
-  all.splice(idx, 1);
-  save(LS.expenses, all);
-
-  queueOutbox_({ op:"delete", table:"Expenses", key:{ ID: id } });
-
-  renderExpenses_();
-  if (state.tab === "analysis") renderAnalysis_();
-  maybeAutoSync_();
-}
-
-function renderExpenses_(){
-  updateSyncBadge_();
-
-  const all = load(LS.expenses, []);
-  const items = all.slice().sort((a,b) => (b.date||"").localeCompare(a.date||""));
-
-  if (!expenseList) return;
-  expenseList.innerHTML = "";
-
-  if (!items.length) {
-    expenseList.innerHTML = `<div class="card p-4 text-sm text-slate-200/80">尚無消費紀錄。</div>`;
-    return;
+  if (!fx){
+    const candidates = Object.keys(fxMap).filter(k => k.endsWith(`:${e.currency}`));
+    if (candidates.length){
+      candidates.sort();
+      fx = Number(fxMap[candidates[candidates.length-1]] || 0);
+    }
   }
-
-  const fxMap = getFxMap_();
-
-  items.forEach(e => {
-    const twd = toTwd_(e, fxMap);
-    const sub = (e.currency === "TWD")
-      ? ""
-      : `<div class="text-xs text-slate-300/80">${escapeHtml_(e.currency)} ${fmtMoney_(e.amount)}（原幣）</div>`;
-
-    const splits = String(e.involved||"").split(",").map(s=>s.trim()).filter(Boolean).join("、");
-    const isPendingOffline = (!navigator.onLine) && state.pending.Expenses.has(e.id);
-
-    const card = document.createElement("div");
-    card.className = "card p-4";
-    if (isPendingOffline) card.classList.add("pending-card");
-
-    card.innerHTML = `
-      <div class="flex items-start justify-between gap-3">
-        <div class="min-w-0">
-          <div class="flex items-center gap-2">
-            <div class="text-base font-semibold break-words">${escapeHtml_(e.item)}</div>
-            ${isPendingOffline ? `<span class="text-xs pending-badge">待上傳</span>` : ``}
-          </div>
-          <div class="mt-1 text-sm text-slate-200/90">${escapeHtml_(e.payer)} • ${escapeHtml_(e.location)} • ${escapeHtml_(e.category)} • ${escapeHtml_(e.payment)}</div>
-          <div class="mt-2 text-2xl font-semibold">NT$ ${fmtMoney_(twd)}</div>
-          ${sub}
-          ${e.note ? `<div class="mt-2 text-sm text-slate-100/90 break-words">${escapeHtml_(e.note)}</div>` : ""}
-          <div class="mt-2 text-xs text-slate-300/80">分攤：${escapeHtml_(splits)}</div>
-        </div>
-        <div class="shrink-0 flex flex-col gap-2">
-          <button class="btn btn-ghost text-sm" data-act="edit">編輯</button>
-          <button class="btn btn-ghost text-sm" data-act="del">刪除</button>
-        </div>
-      </div>
-    `;
-    card.querySelector('[data-act="edit"]').addEventListener("click", () => editExpense_(e.id));
-    card.querySelector('[data-act="del"]').addEventListener("click", () => deleteExpense_(e.id));
-    expenseList.appendChild(card);
-  });
+  if (!fx) fx = 1; // fallback
+  return Math.round(amt * fx);
 }
-
-function toSheetExpense_(e){
-  return {
-    Date: e.date,
-    Payer: e.payer,
-    Location: e.location,
-    Category: e.category,
-    Item: e.item,
-    Payment: e.payment,
-    Currency: e.currency,
-    Amount: e.amount,
-    Involved: e.involved, // ✅ comma
-    Note: e.note || "",
-    ID: e.id
-  };
+function sumTwd(items, fxMap){
+  return Math.round(items.reduce((s,e)=>s + toTwd(e, fxMap), 0));
 }
 
 // ====================== ANALYSIS ======================
-function renderAnalysis_(){
-  updateSyncBadge_();
-  const fxMap = getFxMap_();
-  const all = load(LS.expenses, []);
+function renderAnalysis(){
+  updateSyncBadge();
+  const fxMap = getFxMap();
+  const all = load(LS.expenses, []).map(x => ({...x, date: normalizeDateKey(x.date)}));
 
   const filtered = all.filter(e => {
     const f = state.filter;
@@ -810,106 +674,109 @@ function renderAnalysis_(){
     return true;
   });
 
+  // Budget (only JQ+TY total paid)
   const jqTy = filtered.filter(e => e.payer === "家齊" || e.payer === "亭穎");
-  const momPaid = filtered.filter(e => e.payer === "媽媽");
-
-  const jqTyTotal = sumTwd_(jqTy, fxMap);
-  const momPaidTotal = sumTwd_(momPaid, fxMap);
-  const momShare = computePersonShareTwd_("媽媽", filtered, fxMap);
-
+  const jqTyTotal = sumTwd(jqTy, fxMap);
   const remain = Math.max(0, BUDGET_JQ_TY - jqTyTotal);
 
-  if (budgetSpent) budgetSpent.textContent = `NT$ ${fmtMoney_(jqTyTotal)}`;
-  if (budgetRemain) budgetRemain.textContent = `NT$ ${fmtMoney_(remain)}`;
-  if (momLine) momLine.textContent = `＊媽媽的支出與分攤：NT$ ${fmtMoney_(momShare)}（媽媽自付：NT$ ${fmtMoney_(momPaidTotal)}）`;
+  budgetSpent.textContent = `NT$ ${fmtMoney(jqTyTotal)}`;
+  budgetRemain.textContent = `NT$ ${fmtMoney(remain)}`;
+  budgetBar.style.width = `${clamp(BUDGET_JQ_TY ? (jqTyTotal/BUDGET_JQ_TY) : 0, 0, 1) * 100}%`;
 
-  const pct = clamp(BUDGET_JQ_TY ? (jqTyTotal / BUDGET_JQ_TY) : 0, 0, 1);
-  if (budgetBar) budgetBar.style.width = `${Math.round(pct*100)}%`;
+  // Mom line: mom share (split) + mom paid
+  const momPaid = filtered.filter(e => e.payer === "媽媽");
+  const momPaidTotal = sumTwd(momPaid, fxMap);
+  const momShare = computePersonShareTwd("媽媽", filtered, fxMap);
+  momLine.textContent = `＊媽媽的支出與分攤：NT$ ${fmtMoney(momShare)}（媽媽自付：NT$ ${fmtMoney(momPaidTotal)}）`;
 
+  // ✅ Pie: aggregate by Category (NOT by item)
   const catMap = new Map();
-  for (const e of filtered) {
-    const twd = toTwd_(e, fxMap);
-    catMap.set(e.category, (catMap.get(e.category)||0) + twd);
+  for (const e of filtered){
+    const twd = toTwd(e, fxMap);
+    catMap.set(e.category, (catMap.get(e.category) || 0) + twd);
   }
   const labels = Array.from(catMap.keys());
   const values = labels.map(k => catMap.get(k));
+  renderPie(labels, values);
 
-  renderPie_(labels, values);
+  // Detail list (edit/delete here only)
+  analysisExpenseList.innerHTML = "";
+  const items = filtered.slice().sort((a,b)=> (b.date||"").localeCompare(a.date||""));
 
-  if (analysisExpenseList) {
-    analysisExpenseList.innerHTML = "";
-    const items = filtered.slice().sort((a,b)=> (b.date||"").localeCompare(a.date||""));
-    if (!items.length) {
-      analysisExpenseList.innerHTML = `<div class="card p-4 text-sm text-slate-200/80">此篩選條件下沒有消費。</div>`;
-    } else {
-      items.forEach(e => {
-        const twd = toTwd_(e, fxMap);
-        const sub = (e.currency === "TWD")
-          ? ""
-          : `<div class="text-xs text-slate-300/80">${escapeHtml_(e.currency)} ${fmtMoney_(e.amount)}（原幣）</div>`;
-        const splits = String(e.involved||"").split(",").map(s=>s.trim()).filter(Boolean).join("、");
-        const isPendingOffline = (!navigator.onLine) && state.pending.Expenses.has(e.id);
+  if (!items.length){
+    analysisExpenseList.innerHTML = `<div class="card p-4 text-sm" style="color: rgba(11,18,32,.62);">此篩選條件下沒有消費。</div>`;
+  } else {
+    items.forEach(e => {
+      const twd = toTwd(e, fxMap);
 
-        const card = document.createElement("div");
-        card.className = "card p-4";
-        if (isPendingOffline) card.classList.add("pending-card");
+      // ✅ Correct display:
+      // Big: NT$ converted
+      // Small: original currency (if not TWD)
+      const originalLine = (e.currency && e.currency !== "TWD")
+        ? `<div class="text-xs" style="color: rgba(11,18,32,.52);">${escapeHtml(e.currency)} ${fmtMoney(e.amount)}（原幣）</div>`
+        : ``;
 
-        card.innerHTML = `
-          <div class="flex items-start justify-between gap-3">
-            <div class="min-w-0">
-              <div class="flex items-center gap-2">
-                <div class="text-base font-semibold break-words">${escapeHtml_(e.item)}</div>
-                ${isPendingOffline ? `<span class="text-xs pending-badge">待上傳</span>` : ``}
-              </div>
-              <div class="mt-1 text-sm text-slate-200/90">${escapeHtml_(e.payer)} • ${escapeHtml_(e.location)} • ${escapeHtml_(e.category)} • ${escapeHtml_(e.payment)}</div>
-              <div class="mt-2 text-2xl font-semibold">NT$ ${fmtMoney_(twd)}</div>
-              ${sub}
-              ${e.note ? `<div class="mt-2 text-sm text-slate-100/90 break-words">${escapeHtml_(e.note)}</div>` : ""}
-              <div class="mt-2 text-xs text-slate-300/80">分攤：${escapeHtml_(splits)}</div>
+      const splits = String(e.involved||"").split(",").map(s=>s.trim()).filter(Boolean).join("、");
+      const pendingOffline = (!navigator.onLine) && state.pending.Expenses.has(e.id);
+
+      const card = document.createElement("div");
+      card.className = "card p-4";
+      if (pendingOffline) card.classList.add("pending-card");
+
+      card.innerHTML = `
+        <div class="flex items-start justify-between gap-3">
+          <div class="min-w-0">
+            <div class="flex items-center gap-2">
+              <span class="tag ${expTagClass(e.category)}">${escapeHtml(e.category)}</span>
+              <div class="text-base font-semibold break-words" style="color: rgba(11,18,32,.92);">${escapeHtml(e.item)}</div>
+              ${pendingOffline ? `<span class="text-xs pending-badge">待上傳</span>` : ``}
             </div>
-            <div class="shrink-0 flex flex-col gap-2">
-              <button class="btn btn-ghost text-sm" data-act="edit">編輯</button>
-              <button class="btn btn-ghost text-sm" data-act="del">刪除</button>
+
+            <div class="mt-1 text-sm" style="color: rgba(11,18,32,.56);">
+              ${escapeHtml(e.payer)} • ${escapeHtml(e.location)} • ${escapeHtml(e.payment)} • ${escapeHtml(e.date)}
             </div>
+
+            <div class="mt-2 text-2xl font-semibold" style="color: rgba(11,18,32,.92);">NT$ ${fmtMoney(twd)}</div>
+            ${originalLine}
+
+            ${e.note ? `<div class="mt-2 text-sm break-words" style="color: rgba(11,18,32,.72);">${escapeHtml(e.note)}</div>` : ""}
+            <div class="mt-2 text-xs" style="color: rgba(11,18,32,.52);">分攤：${escapeHtml(splits)}</div>
           </div>
-        `;
-        card.querySelector('[data-act="edit"]').addEventListener("click", () => editExpense_(e.id));
-        card.querySelector('[data-act="del"]').addEventListener("click", () => deleteExpense_(e.id));
-        analysisExpenseList.appendChild(card);
-      });
-    }
+
+          <div class="shrink-0 flex flex-col gap-2">
+            <button class="btn btn-ghost text-sm" data-act="edit">編輯</button>
+            <button class="btn btn-ghost text-sm" data-act="del">刪除</button>
+          </div>
+        </div>
+      `;
+
+      card.querySelector('[data-act="edit"]').addEventListener("click", () => editExpenseInModal(e.id));
+      card.querySelector('[data-act="del"]').addEventListener("click", () => deleteExpense(e.id));
+
+      analysisExpenseList.appendChild(card);
+    });
   }
 
-  if (settlement) settlement.textContent = buildSettlement_(filtered, fxMap);
+  settlement.textContent = buildSettlement(filtered, fxMap);
 }
 
-function renderPie_(labels, values){
-  if (!pieCanvas || !window.Chart) return;
-  const ctx = pieCanvas.getContext("2d");
-  if (state.pieChart) state.pieChart.destroy();
-  state.pieChart = new Chart(ctx, {
-    type: "pie",
-    data: { labels, datasets: [{ data: values }] },
-    options: {
-      responsive: true,
-      plugins: {
-        legend: { position: "bottom" },
-        tooltip: {
-          callbacks: {
-            label: (item) => `${item.label}: NT$ ${fmtMoney_(item.raw || 0)}`
-          }
-        }
-      }
-    }
-  });
+function computePersonShareTwd(person, items, fxMap){
+  let total = 0;
+  for (const e of items){
+    const twd = toTwd(e, fxMap);
+    const inv = String(e.involved||"").split(",").map(s=>s.trim()).filter(Boolean);
+    if (!inv.length) continue;
+    if (inv.includes(person)) total += twd / inv.length;
+  }
+  return Math.round(total);
 }
 
-function buildSettlement_(items, fxMap){
+function buildSettlement(items, fxMap){
   const paid = new Map(PEOPLE.map(p=>[p,0]));
   const share = new Map(PEOPLE.map(p=>[p,0]));
 
-  for (const e of items) {
-    const twd = toTwd_(e, fxMap);
+  for (const e of items){
+    const twd = toTwd(e, fxMap);
     paid.set(e.payer, (paid.get(e.payer)||0) + twd);
 
     const inv = String(e.involved||"").split(",").map(s=>s.trim()).filter(Boolean);
@@ -923,7 +790,7 @@ function buildSettlement_(items, fxMap){
 
   const debtors = [];
   const creditors = [];
-  for (const [p,n] of net.entries()) {
+  for (const [p,n] of net.entries()){
     if (n > 1) debtors.push([p,n]);
     if (n < -1) creditors.push([p,-n]);
   }
@@ -934,7 +801,7 @@ function buildSettlement_(items, fxMap){
   let i=0,j=0;
   while(i<debtors.length && j<creditors.length){
     const pay = Math.min(debtors[i][1], creditors[j][1]);
-    lines.push(`${debtors[i][0]} → ${creditors[j][0]}：NT$ ${fmtMoney_(Math.round(pay))}`);
+    lines.push(`${debtors[i][0]} → ${creditors[j][0]}：NT$ ${fmtMoney(Math.round(pay))}`);
     debtors[i][1] -= pay;
     creditors[j][1] -= pay;
     if (debtors[i][1] <= 1) i++;
@@ -943,27 +810,133 @@ function buildSettlement_(items, fxMap){
   return lines.length ? lines.join("\n") : "目前不需要分帳結算。";
 }
 
-function computePersonShareTwd_(person, items, fxMap){
-  let total = 0;
-  for (const e of items) {
-    const twd = toTwd_(e, fxMap);
-    const inv = String(e.involved||"").split(",").map(s=>s.trim()).filter(Boolean);
-    if (!inv.length) continue;
-    if (inv.includes(person)) total += twd / inv.length;
-  }
-  return Math.round(total);
+function renderPie(labels, values){
+  if (!pieCanvas || !window.Chart) return;
+  const ctx = pieCanvas.getContext("2d");
+  if (state.pieChart) state.pieChart.destroy();
+
+  state.pieChart = new Chart(ctx, {
+    type: "pie",
+    data: { labels, datasets: [{ data: values }] },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { position: "bottom" },
+        tooltip: {
+          callbacks: {
+            label: (item) => `${item.label}: NT$ ${fmtMoney(item.raw || 0)}`
+          }
+        }
+      }
+    }
+  });
+}
+
+// ====================== EDIT EXPENSE (analysis-only) ======================
+/* We reuse the expenses input form as an editor:
+   - jump to Expenses tab, fill values, and "確認記帳" temporarily becomes "儲存變更"
+   - but per your rule: editing should be initiated only from analysis (buttons only exist there)
+*/
+let editingExpenseId = null;
+
+function editExpenseInModal(id){
+  const all = load(LS.expenses, []);
+  const e = all.find(x => x.id === id);
+  if (!e) return;
+
+  editingExpenseId = id;
+  setTab("expenses");
+
+  expWho.value = e.payer;
+  expWhere.value = e.location;
+  expCategory.value = e.category;
+  expPay.value = e.payment;
+  expCurrency.value = e.currency || "TWD";
+  expAmount.value = e.amount;
+  expTitle.value = e.item;
+  expNote.value = e.note || "";
+
+  const splits = String(e.involved||"").split(",").map(s=>s.trim()).filter(Boolean);
+  $$("#splitChooser .tag").forEach(b => b.classList.toggle("active", splits.includes(b.dataset.value)));
+
+  btnAddExpense.textContent = "儲存變更";
+}
+
+function saveExpenseEdit(){
+  const id = editingExpenseId;
+  if (!id) return;
+
+  const all = load(LS.expenses, []);
+  const idx = all.findIndex(x => x.id === id);
+  if (idx < 0) return;
+
+  const who = expWho.value || PEOPLE[0];
+  const where = expWhere.value || WHERE[0];
+  const category = expCategory.value || EXP_CATEGORIES[0];
+  const pay = expPay.value || PAY[0];
+  const currency = expCurrency.value || "TWD";
+  const amount = Number(expAmount.value);
+  const title = (expTitle.value || "").trim();
+  const note = (expNote.value || "").trim();
+  const split = getSplitSelected();
+
+  if (!title) return alert("請輸入消費名稱");
+  if (!Number.isFinite(amount) || amount <= 0) return alert("請輸入正確金額");
+  if (!split.length) return alert("請選擇分攤人員");
+
+  all[idx] = {
+    ...all[idx],
+    date: normalizeDateKey(state.selectedDate),
+    payer: who,
+    location: where,
+    category,
+    item: title,
+    payment: pay,
+    currency,
+    amount,
+    involved: split.join(","),
+    note
+  };
+  save(LS.expenses, all);
+
+  queueOutbox({ op:"upsert", table:"Expenses", row: toSheetExpense(all[idx]) });
+  maybeAutoSync();
+
+  editingExpenseId = null;
+  btnAddExpense.textContent = "確認記帳";
+  expAmount.value = "";
+  expTitle.value = "";
+  expNote.value = "";
+  setSplitDefault(expWho.value || PEOPLE[0]);
+
+  setTab("analysis");
+  renderAnalysis();
+}
+
+function deleteExpense(id){
+  if (!confirm("確定刪除這筆消費？")) return;
+  const all = load(LS.expenses, []);
+  const idx = all.findIndex(x => x.id === id);
+  if (idx < 0) return;
+
+  all.splice(idx, 1);
+  save(LS.expenses, all);
+
+  queueOutbox({ op:"delete", table:"Expenses", key:{ ID:id }});
+  maybeAutoSync();
+  renderAnalysis();
 }
 
 // ====================== FILTER MODAL ======================
-function buildFilterModal_(){
-  buildFilterBox_(filterWhoBox, PEOPLE, state.filter.who);
-  buildFilterBox_(filterWhereBox, WHERE, state.filter.where);
-  buildFilterBox_(filterCategoryBox, EXP_CATEGORIES, state.filter.category);
-  buildFilterBox_(filterPayBox, PAY, state.filter.pay);
-  renderFilterChips_();
+function buildFilterModal(){
+  buildFilterBox(filterWhoBox, PEOPLE, state.filter.who);
+  buildFilterBox(filterWhereBox, WHERE, state.filter.where);
+  buildFilterBox(filterCategoryBox, EXP_CATEGORIES, state.filter.category);
+  buildFilterBox(filterPayBox, PAY, state.filter.pay);
+  renderFilterChips();
 }
 
-function buildFilterBox_(boxEl, options, setRef){
+function buildFilterBox(boxEl, options, setRef){
   if (!boxEl) return;
   boxEl.innerHTML = "";
   options.forEach(v => {
@@ -975,23 +948,23 @@ function buildFilterBox_(boxEl, options, setRef){
       if (setRef.has(v)) setRef.delete(v);
       else setRef.add(v);
       b.classList.toggle("active", setRef.has(v));
-      renderFilterChips_();
+      renderFilterChips();
     });
     boxEl.appendChild(b);
   });
 }
 
-function renderFilterChips_(){
+function renderFilterChips(){
   if (!filterChips) return;
 
   const chips = [];
-  for (const v of state.filter.who) chips.push({ k:"who", v });
-  for (const v of state.filter.where) chips.push({ k:"where", v });
-  for (const v of state.filter.category) chips.push({ k:"category", v });
-  for (const v of state.filter.pay) chips.push({ k:"pay", v });
+  for (const v of state.filter.who) chips.push({k:"who", v});
+  for (const v of state.filter.where) chips.push({k:"where", v});
+  for (const v of state.filter.category) chips.push({k:"category", v});
+  for (const v of state.filter.pay) chips.push({k:"pay", v});
 
-  if (!chips.length) {
-    filterChips.innerHTML = `<span class="text-xs text-slate-300/80">未套用篩選</span>`;
+  if (!chips.length){
+    filterChips.innerHTML = `<span class="text-xs" style="color: rgba(11,18,32,.52);">未套用篩選</span>`;
     return;
   }
 
@@ -999,28 +972,137 @@ function renderFilterChips_(){
   chips.forEach(c => {
     const chip = document.createElement("button");
     chip.className = "chip";
-    chip.innerHTML = `${escapeHtml_(c.v)} <span class="x">×</span>`;
+    chip.innerHTML = `${escapeHtml(c.v)} <span class="x">×</span>`;
     chip.addEventListener("click", () => {
       state.filter[c.k].delete(c.v);
-      buildFilterModal_();
-      renderAnalysis_();
+      buildFilterModal();
+      renderAnalysis();
     });
     filterChips.appendChild(chip);
   });
 }
 
-function openFilterModal_(){ modalFilter?.classList.remove("hidden"); }
-function closeFilterModal_(){ modalFilter?.classList.add("hidden"); }
-function clearFilters_(){
+function openFilterModal(){ modalFilter?.classList.remove("hidden"); }
+function closeFilterModal(){ modalFilter?.classList.add("hidden"); }
+function clearFilters(){
   state.filter.who.clear();
   state.filter.where.clear();
   state.filter.category.clear();
   state.filter.pay.clear();
-  buildFilterModal_();
+  buildFilterModal();
 }
 
-// ====================== VIEWER (pan/zoom + pinch) ======================
-function setupViewer_(){
+// ====================== OUTBOX / SYNC / PULL ======================
+function queueOutbox(op){
+  const box = load(LS.outbox, []);
+  box.push(op);
+  save(LS.outbox, box);
+  updateSyncBadge();
+}
+
+async function maybeAutoSync(){
+  if (!navigator.onLine) return;
+  const box = load(LS.outbox, []);
+  if (!box.length) return;
+
+  setSyncBadge("sync", "同步中");
+  try { await syncNow(); }
+  catch { setSyncBadge("warn", "同步失敗"); }
+}
+
+async function syncNow(){
+  if (!navigator.onLine){ updateSyncBadge(); return; }
+  const box = load(LS.outbox, []);
+  if (!box.length){ updateSyncBadge(); return; }
+
+  setSyncBadge("sync", "同步中");
+  const payload = { action:"sync", ops: box };
+  const res = await postJsonNoPreflight(GAS_URL, payload);
+  if (!res?.ok) throw new Error(res?.error || "sync failed");
+
+  await pullAll();
+  save(LS.outbox, []);
+  updateSyncBadge();
+  renderAll();
+}
+
+async function pullAll(){
+  const url = `${GAS_URL}?action=pull`;
+  const res = await fetch(url).then(r => r.json());
+  if (!res?.ok || !Array.isArray(res.rows)) throw new Error("pull failed");
+  mergePulled(res.rows);
+}
+
+function mergePulled(rows){
+  const exp = [];
+  const it = [];
+
+  for (const item of rows){
+    const table = item.table;
+    const r = item.row || {};
+
+    if (table === "Expenses"){
+      exp.push({
+        id: String(r.ID || ""),
+        date: normalizeDateKey(r.Date || ""),
+        payer: String(r.Payer || ""),
+        location: String(r.Location || ""),
+        category: String(r.Category || ""),
+        item: String(r.Item || ""),
+        payment: String(r.Payment || ""),
+        currency: String(r.Currency || "TWD"),
+        amount: Number(r.Amount || 0),
+        involved: String(r.Involved || ""),
+        note: String(r.Note || "")
+      });
+    }
+
+    if (table === "Itinerary"){
+      it.push({
+        id: String(r.ID || ""),
+        date: normalizeDateKey(r.Date || ""),
+        start: String(r.StatTime || ""),
+        end: String(r.EndTime || ""),
+        category: String(r.Category || ""),
+        title: String(r.Title || ""),
+        location: String(r.Location || ""),
+        link: String(r.Link || ""),
+        note: String(r.Note || ""),
+        image: String(r.Image || ""),
+        imageId: String(r.ImageID || ""),
+        imageDataUrl: ""
+      });
+    }
+  }
+
+  save(LS.expenses, exp.filter(x=>x.id));
+  save(LS.itinerary, it.filter(x=>x.id));
+}
+
+// ====================== IMAGE UPLOAD ======================
+async function uploadImageToDrive(file, dataUrl){
+  const payload = {
+    action: "uploadImage",
+    folder_id: DRIVE_FOLDER_ID,
+    filename: file.name || `it_${Date.now()}.jpg`,
+    mime_type: file.type || "image/jpeg",
+    data_url: dataUrl
+  };
+  const res = await postJsonNoPreflight(GAS_URL, payload);
+  if (!res?.ok) throw new Error(res?.error || "uploadImage failed");
+  return res;
+}
+function fileToDataUrl(file){
+  return new Promise((resolve,reject)=>{
+    const fr = new FileReader();
+    fr.onload = () => resolve(String(fr.result));
+    fr.onerror = reject;
+    fr.readAsDataURL(file);
+  });
+}
+
+// ====================== VIEWER ======================
+function setupViewer(){
   if (!viewerStage || !viewerImg) return;
 
   let pointers = new Map();
@@ -1031,7 +1113,6 @@ function setupViewer_(){
   const apply = () => {
     viewerImg.style.transform = `translate(${state.viewer.tx}px, ${state.viewer.ty}px) scale(${state.viewer.scale})`;
   };
-
   const reset = () => {
     state.viewer.scale = 1;
     state.viewer.tx = 0;
@@ -1040,15 +1121,15 @@ function setupViewer_(){
   };
 
   btnResetViewer?.addEventListener("click", reset);
-  btnCloseViewer?.addEventListener("click", closeViewer_);
+  btnCloseViewer?.addEventListener("click", closeViewer);
 
   viewerStage.addEventListener("pointerdown", (e) => {
     viewerStage.setPointerCapture(e.pointerId);
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (pointers.size === 1) {
+    if (pointers.size === 1){
       lastPan = { x: e.clientX, y: e.clientY, tx: state.viewer.tx, ty: state.viewer.ty };
     }
-    if (pointers.size === 2) {
+    if (pointers.size === 2){
       const pts = Array.from(pointers.values());
       pinchStartDist = Math.hypot(pts[0].x-pts[1].x, pts[0].y-pts[1].y);
       pinchStartScale = state.viewer.scale;
@@ -1059,15 +1140,14 @@ function setupViewer_(){
     if (!pointers.has(e.pointerId)) return;
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
-    if (pointers.size === 1 && lastPan) {
+    if (pointers.size === 1 && lastPan){
       const dx = e.clientX - lastPan.x;
       const dy = e.clientY - lastPan.y;
       state.viewer.tx = lastPan.tx + dx;
       state.viewer.ty = lastPan.ty + dy;
       apply();
     }
-
-    if (pointers.size === 2) {
+    if (pointers.size === 2){
       const pts = Array.from(pointers.values());
       const dist = Math.hypot(pts[0].x-pts[1].x, pts[0].y-pts[1].y);
       const ratio = dist / Math.max(1, pinchStartDist);
@@ -1079,32 +1159,29 @@ function setupViewer_(){
   const endPointer = (e) => {
     pointers.delete(e.pointerId);
     if (pointers.size === 0) lastPan = null;
-    if (pointers.size === 1) {
+    if (pointers.size === 1){
       const pts = Array.from(pointers.values());
       if (pts.length) lastPan = { x: pts[0].x, y: pts[0].y, tx: state.viewer.tx, ty: state.viewer.ty };
     }
   };
-
   viewerStage.addEventListener("pointerup", endPointer);
   viewerStage.addEventListener("pointercancel", endPointer);
 
-  // swipe down to close when scale ~ 1
+  // swipe down to close
   let startY = 0;
   viewerStage.addEventListener("touchstart", (e) => {
     if (e.touches.length === 1) startY = e.touches[0].clientY;
-  }, { passive: true });
-
+  }, { passive:true });
   viewerStage.addEventListener("touchmove", (e) => {
     if (e.touches.length !== 1) return;
     const dy = e.touches[0].clientY - startY;
-    if (dy > 120 && state.viewer.scale <= 1.05) closeViewer_();
-  }, { passive: true });
+    if (dy > 120 && state.viewer.scale <= 1.05) closeViewer();
+  }, { passive:true });
 
   reset();
 }
 
-function openViewer_(src){
-  if (!modalViewer || !viewerImg) return;
+function openViewer(src){
   viewerImg.src = src;
   modalViewer.classList.remove("hidden");
   state.viewer.scale = 1;
@@ -1112,10 +1189,10 @@ function openViewer_(src){
   state.viewer.ty = 0;
   viewerImg.style.transform = `translate(0px,0px) scale(1)`;
 }
-function closeViewer_(){ modalViewer?.classList.add("hidden"); }
+function closeViewer(){ modalViewer.classList.add("hidden"); }
 
 // ====================== LINK INSERT ======================
-function insertLinkFromSelection_(editableEl){
+function insertLinkFromSelection(editableEl){
   editableEl.focus();
   const sel = window.getSelection();
   if (!sel || sel.rangeCount === 0) return alert("請先反白要加連結的文字");
@@ -1139,56 +1216,181 @@ function insertLinkFromSelection_(editableEl){
   sel.addRange(range);
 }
 
-// ====================== EVENTS ======================
-function attachEvents_(){
-  tabButtons.forEach(b => b.addEventListener("click", () => setTab_(b.dataset.tab)));
+// ====================== NETWORK HELPERS ======================
+async function postJsonNoPreflight(url, payload){
+  const res = await fetch(url, {
+    method:"POST",
+    headers:{ "Content-Type":"text/plain;charset=utf-8" },
+    body: JSON.stringify(payload)
+  });
+  return res.json();
+}
 
-  btnAddItinerary?.addEventListener("click", () => openItModal_());
-  btnAddItineraryBottom?.addEventListener("click", () => openItModal_());
-  btnCloseItinerary?.addEventListener("click", closeItModal_);
-  btnCancelIt?.addEventListener("click", closeItModal_);
-  btnSaveIt?.addEventListener("click", saveItinerary_);
+// ====================== GESTURES ======================
+function setupEdgeGestures(){
+  let startX=0, startY=0, startAtEdge=false;
+
+  document.addEventListener("touchstart", (e) => {
+    if (e.touches.length !== 1) return;
+    startX = e.touches[0].clientX;
+    startY = e.touches[0].clientY;
+    startAtEdge = (startX <= 18 || startX >= (window.innerWidth - 18));
+  }, { passive:true });
+
+  document.addEventListener("touchend", (e) => {
+    if (!startX) return;
+    const endX = e.changedTouches?.[0]?.clientX ?? startX;
+    const endY = e.changedTouches?.[0]?.clientY ?? startY;
+    const dx = endX - startX;
+    const dy = endY - startY;
+    if (Math.abs(dx) < 40 || Math.abs(dx) < Math.abs(dy)) return;
+
+    if (startAtEdge){
+      const order = ["itinerary","expenses","analysis"];
+      const idx = order.indexOf(state.tab);
+      const next = dx < 0 ? clamp(idx+1,0,order.length-1) : clamp(idx-1,0,order.length-1);
+      setTab(order[next]);
+      return;
+    }
+
+    if (state.tab === "itinerary"){
+      const chips = $$(".date-chip");
+      const curIdx = chips.findIndex(c => c.dataset.date === state.selectedDate);
+      const nextIdx = dx < 0 ? clamp(curIdx+1,0,chips.length-1) : clamp(curIdx-1,0,chips.length-1);
+      const nextDate = chips[nextIdx]?.dataset.date;
+      if (nextDate) setSelectedDate(nextDate, true);
+    }
+  }, { passive:true });
+}
+
+// ====================== PULL TO REFRESH ======================
+function setupPullToRefresh(containers){
+  let ind = $("#ptrIndicator");
+  if (!ind){
+    ind = document.createElement("div");
+    ind.id = "ptrIndicator";
+    ind.style.position = "fixed";
+    ind.style.left = "0";
+    ind.style.right = "0";
+    ind.style.top = "0";
+    ind.style.zIndex = "9999";
+    ind.style.padding = "10px 12px";
+    ind.style.textAlign = "center";
+    ind.style.fontSize = "12px";
+    ind.style.color = "rgba(11,18,32,.72)";
+    ind.style.background = "rgba(255,255,255,.72)";
+    ind.style.backdropFilter = "blur(14px)";
+    ind.style.webkitBackdropFilter = "blur(14px)";
+    ind.style.borderBottom = "1px solid rgba(20,35,60,.10)";
+    ind.style.transform = "translateY(-120%)";
+    ind.style.transition = "transform 180ms ease";
+    ind.textContent = "下拉重新整理";
+    document.body.appendChild(ind);
+  }
+
+  const THRESH = 70;
+
+  containers.forEach(el => {
+    if (!el) return;
+    let pulling=false, startY=0, dist=0;
+
+    const isAtTop = () => (window.scrollY <= 0);
+
+    el.addEventListener("touchstart", (e) => {
+      if (e.touches.length !== 1) return;
+      if (!isAtTop()) return;
+      pulling = true;
+      startY = e.touches[0].clientY;
+      dist = 0;
+    }, { passive:true });
+
+    el.addEventListener("touchmove", (e) => {
+      if (!pulling) return;
+      const y = e.touches[0].clientY;
+      dist = Math.max(0, y - startY);
+      if (dist > 8) e.preventDefault();
+      const pct = clamp(dist/THRESH, 0, 1);
+      ind.textContent = (dist >= THRESH) ? "放開即可重新整理" : "下拉重新整理";
+      ind.style.transform = `translateY(${(-120 + pct*120)}%)`;
+    }, { passive:false });
+
+    el.addEventListener("touchend", async () => {
+      if (!pulling) return;
+      pulling = false;
+
+      if (dist >= THRESH){
+        ind.textContent = "重新整理中…";
+        ind.style.transform = "translateY(0%)";
+        try{
+          if (!navigator.onLine){
+            ind.textContent = "目前離線，無法重新整理";
+            setTimeout(()=>ind.style.transform="translateY(-120%)", 800);
+            return;
+          }
+          await pullAll();
+          renderAll();
+          ind.textContent = "已更新";
+          setTimeout(()=>ind.style.transform="translateY(-120%)", 500);
+        }catch{
+          ind.textContent = "更新失敗";
+          setTimeout(()=>ind.style.transform="translateY(-120%)", 800);
+        }
+      } else {
+        ind.style.transform = "translateY(-120%)";
+      }
+      dist = 0;
+    }, { passive:true });
+
+    el.addEventListener("touchcancel", () => {
+      pulling=false; dist=0;
+      ind.style.transform="translateY(-120%)";
+    }, { passive:true });
+  });
+}
+
+// ====================== EVENTS ======================
+function attachEvents(){
+  tabButtons.forEach(b => b.addEventListener("click", () => setTab(b.dataset.tab)));
+
+  btnAddItinerary?.addEventListener("click", () => openItModal());
+  btnAddItineraryBottom?.addEventListener("click", () => openItModal());
+  btnCloseItinerary?.addEventListener("click", closeItModal);
+  btnCancelIt?.addEventListener("click", closeItModal);
+  btnSaveIt?.addEventListener("click", saveItinerary);
 
   btnOpenMap?.addEventListener("click", () => {
-    const v = (itAddress?.value || "").trim();
+    const v = (itAddress.value || "").trim();
     if (!v) return;
     const isUrl = /^https?:\/\//i.test(v);
     const target = isUrl ? v : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(v)}`;
     window.open(target, "_blank");
   });
 
-  btnLinkTitle?.addEventListener("click", () => insertLinkFromSelection_(itTitle));
-  btnLinkNote?.addEventListener("click", () => insertLinkFromSelection_(itNote));
-
-  // Right click on "插入連結" set Link column
-  btnLinkTitle?.addEventListener("contextmenu", (e) => {
-    e.preventDefault();
-    const u = prompt("設定此行程的 Link 欄位（可空白）", state.itDraftLink || "");
-    if (u !== null) state.itDraftLink = u.trim();
-  });
+  btnLinkTitle?.addEventListener("click", () => insertLinkFromSelection(itTitle));
+  btnLinkNote?.addEventListener("click", () => insertLinkFromSelection(itNote));
 
   itImage?.addEventListener("change", async () => {
     const f = itImage.files?.[0];
     if (!f) return;
 
-    const dataUrl = await fileToDataUrl_(f);
+    const dataUrl = await fileToDataUrl(f);
     state.itDraftImageDataUrl = dataUrl;
-    if (itImagePreview) itImagePreview.innerHTML = `<img class="rounded-2xl border border-white/10" src="${dataUrl}" alt="preview" />`;
+    itImagePreview.innerHTML = `<img class="rounded-2xl border border-white/10" src="${dataUrl}" alt="preview" />`;
 
-    if (!navigator.onLine) {
-      updateSyncBadge_();
+    if (!navigator.onLine){
+      updateSyncBadge();
       alert("目前離線：已先本地預覽。連線後可再次選取圖片上傳同步。");
       return;
     }
 
-    setSyncBadge_("sync", "同步中");
-    try {
-      const res = await uploadImageToDrive_(f, dataUrl);
+    setSyncBadge("sync", "同步中");
+    try{
+      const res = await uploadImageToDrive(f, dataUrl);
       state.itDraftDriveFileId = res.file_id;
       state.itDraftDriveUrl = res.direct_view_url;
-      updateSyncBadge_();
-    } catch {
-      updateSyncBadge_();
+      updateSyncBadge();
+    }catch{
+      updateSyncBadge();
       alert("圖片上傳失敗：已保留本地預覽。可稍後再試。");
     }
   });
@@ -1200,312 +1402,81 @@ function attachEvents_(){
   });
 
   btnAddExpense?.addEventListener("click", () => {
-    if (state.editingExpenseId) saveExpenseEdit_();
-    else addExpense_();
+    if (editingExpenseId) saveExpenseEdit();
+    else addExpense();
   });
 
-  btnForceSync?.addEventListener("click", syncNow_);
+  btnForceSync?.addEventListener("click", async () => {
+    try { await syncNow(); }
+    catch(e){ alert("同步失敗：請稍後再試。"); }
+  });
 
-  btnFilter?.addEventListener("click", openFilterModal_);
-  btnExpFilterQuick?.addEventListener("click", () => { setTab_("analysis"); openFilterModal_(); });
-
-  btnCloseFilter?.addEventListener("click", closeFilterModal_);
-  btnClearFilter?.addEventListener("click", () => { clearFilters_(); renderAnalysis_(); });
-  btnApplyFilter?.addEventListener("click", () => { closeFilterModal_(); renderAnalysis_(); });
+  btnFilter?.addEventListener("click", openFilterModal);
+  btnCloseFilter?.addEventListener("click", closeFilterModal);
+  btnClearFilter?.addEventListener("click", () => { clearFilters(); renderAnalysis(); });
+  btnApplyFilter?.addEventListener("click", () => { closeFilterModal(); renderAnalysis(); });
 
   btnFx?.addEventListener("click", () => {
-    alert("匯率設定 UI 你要我做成 modal 的話我可以直接補上（可輸入各幣別→TWD）。目前若未設定匯率，會以 1 計算。");
+    alert("匯率設定 UI 我可以下一步做成完整 modal（輸入 NOK/ISK/EUR/GBP/AED→TWD）。目前若未設定匯率，會以 1 計算。");
   });
+
+  window.addEventListener("online", () => { updateSyncBadge(); maybeAutoSync(); });
+  window.addEventListener("offline", () => { updateSyncBadge(); renderAll(); });
 }
 
-// ====================== EDGE GESTURES ======================
-function setupEdgeGestures_(){
-  let startX = 0, startY = 0, startAtEdge = false;
-
-  document.addEventListener("touchstart", (e) => {
-    if (e.touches.length !== 1) return;
-    startX = e.touches[0].clientX;
-    startY = e.touches[0].clientY;
-    startAtEdge = (startX <= 18 || startX >= (window.innerWidth - 18));
-  }, { passive: true });
-
-  document.addEventListener("touchend", (e) => {
-    if (!startX) return;
-    const endX = e.changedTouches?.[0]?.clientX ?? startX;
-    const endY = e.changedTouches?.[0]?.clientY ?? startY;
-    const dx = endX - startX;
-    const dy = endY - startY;
-
-    if (Math.abs(dx) < 40 || Math.abs(dx) < Math.abs(dy)) return;
-
-    if (startAtEdge) {
-      const order = ["itinerary","expenses","analysis"];
-      const idx = order.indexOf(state.tab);
-      const next = dx < 0 ? clamp(idx+1, 0, order.length-1) : clamp(idx-1, 0, order.length-1);
-      setTab_(order[next]);
-      return;
-    }
-
-    if (state.tab === "itinerary") {
-      const chips = $$(".date-chip");
-      const curIdx = chips.findIndex(c => c.dataset.date === state.selectedDate);
-      const nextIdx = dx < 0 ? clamp(curIdx+1, 0, chips.length-1) : clamp(curIdx-1, 0, chips.length-1);
-      const nextDate = chips[nextIdx]?.dataset.date;
-      if (nextDate) setSelectedDate_(nextDate, true);
-    }
-  }, { passive: true });
-}
-
-// ====================== PULL TO REFRESH ======================
-function setupPullToRefresh_(containers){
-  let ind = $("#ptrIndicator");
-  if (!ind) {
-    ind = document.createElement("div");
-    ind.id = "ptrIndicator";
-    ind.style.position = "fixed";
-    ind.style.left = "0";
-    ind.style.right = "0";
-    ind.style.top = "0";
-    ind.style.zIndex = "9999";
-    ind.style.padding = "10px 12px";
-    ind.style.textAlign = "center";
-    ind.style.fontSize = "12px";
-    ind.style.color = "rgba(226,232,240,0.9)";
-    ind.style.background = "rgba(15,23,42,0.72)";
-    ind.style.backdropFilter = "blur(10px)";
-    ind.style.transform = "translateY(-120%)";
-    ind.style.transition = "transform 180ms ease";
-    ind.textContent = "下拉重新整理";
-    document.body.appendChild(ind);
-  }
-
-  const THRESH = 70;
-
-  containers.forEach((el) => {
-    if (!el) return;
-
-    let pulling = false;
-    let startY = 0;
-    let dist = 0;
-
-    const isAtTop = () => (window.scrollY <= 0);
-
-    el.addEventListener("touchstart", (e) => {
-      if (e.touches.length !== 1) return;
-      if (!isAtTop()) return;
-      pulling = true;
-      startY = e.touches[0].clientY;
-      dist = 0;
-    }, { passive: true });
-
-    el.addEventListener("touchmove", (e) => {
-      if (!pulling) return;
-      const y = e.touches[0].clientY;
-      dist = Math.max(0, y - startY);
-      if (dist > 8) e.preventDefault();
-      const pct = clamp(dist / THRESH, 0, 1);
-      ind.textContent = (dist >= THRESH) ? "放開即可重新整理" : "下拉重新整理";
-      ind.style.transform = `translateY(${(-120 + pct*120)}%)`;
-    }, { passive: false });
-
-    el.addEventListener("touchend", async () => {
-      if (!pulling) return;
-      pulling = false;
-
-      if (dist >= THRESH) {
-        ind.textContent = "重新整理中…";
-        ind.style.transform = "translateY(0%)";
-        try {
-          if (!navigator.onLine) {
-            ind.textContent = "目前離線，無法重新整理";
-            setTimeout(() => ind.style.transform = "translateY(-120%)", 800);
-            return;
-          }
-          await pullAll_();
-          renderAll_();
-          ind.textContent = "已更新";
-          setTimeout(() => ind.style.transform = "translateY(-120%)", 500);
-        } catch {
-          ind.textContent = "更新失敗";
-          setTimeout(() => ind.style.transform = "translateY(-120%)", 800);
-        }
-      } else {
-        ind.style.transform = "translateY(-120%)";
-      }
-      dist = 0;
-    }, { passive: true });
-
-    el.addEventListener("touchcancel", () => {
-      pulling = false;
-      dist = 0;
-      ind.style.transform = "translateY(-120%)";
-    }, { passive: true });
-  });
-}
-
-// ====================== OUTBOX / SYNC / PULL ======================
-function queueOutbox_(op){
-  const box = load(LS.outbox, []);
-  box.push(op);
-  save(LS.outbox, box);
-  updateSyncBadge_();
-}
-
-async function maybeAutoSync_(){
-  if (!navigator.onLine) return;
-  const box = load(LS.outbox, []);
-  if (!box.length) return;
-
-  setSyncBadge_("sync", "同步中");
-  try {
-    await syncNow_();
-  } catch {
-    setSyncBadge_("warn", "同步失敗");
-  }
-}
-
-async function syncNow_(){
-  if (!navigator.onLine) { updateSyncBadge_(); return; }
-
-  const box = load(LS.outbox, []);
-  if (!box.length) { updateSyncBadge_(); return; }
-
-  setSyncBadge_("sync", "同步中");
-  try {
-    const payload = { action: "sync", ops: box };
-    const res = await postJsonNoPreflight_(GAS_URL, payload);
-    if (!res?.ok) throw new Error(res?.error || "sync failed");
-
-    await pullAll_();
-    save(LS.outbox, []);
-    updateSyncBadge_();
-    renderAll_();
-  } catch (e) {
-    console.warn(e);
-    setSyncBadge_("warn", "同步失敗");
-    alert("同步失敗：已保留待送出資料，可稍後再試。");
-    throw e;
-  }
-}
-
-async function pullAll_(){
-  const url = `${GAS_URL}?action=pull`;
-  const res = await fetch(url).then(r => r.json());
-  if (!res?.ok || !Array.isArray(res.rows)) throw new Error("pull failed");
-  mergePulled_(res.rows);
-}
-
-function mergePulled_(rows){
-  const exp = [];
-  const it  = [];
-
-  for (const item of rows) {
-    const table = item.table;
-    const r = item.row || {};
-
-    if (table === "Expenses") {
-      exp.push({
-        id: String(r.ID || ""),
-        date: String(r.Date || ""),
-        payer: String(r.Payer || ""),
-        location: String(r.Location || ""),
-        category: String(r.Category || ""),
-        item: String(r.Item || ""),
-        payment: String(r.Payment || ""),
-        currency: String(r.Currency || "TWD"),
-        amount: Number(r.Amount || 0),
-        involved: String(r.Involved || ""),
-        note: String(r.Note || "")
-      });
-    }
-
-    if (table === "Itinerary") {
-      it.push({
-        id: String(r.ID || ""),
-        date: String(r.Date || ""),
-        start: String(r.StatTime || ""),
-        end: String(r.EndTime || ""),
-        category: String(r.Category || ""),
-        title: String(r.Title || ""),
-        location: String(r.Location || ""),
-        link: String(r.Link || ""),
-        note: String(r.Note || ""),
-        image: String(r.Image || ""),
-        imageId: String(r.ImageID || ""),
-        imageDataUrl: ""
-      });
-    }
-  }
-
-  save(LS.expenses, exp.filter(x=>x.id));
-  save(LS.itinerary, it.filter(x=>x.id));
-}
-
-async function postJsonNoPreflight_(url, payload){
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "text/plain;charset=utf-8" },
-    body: JSON.stringify(payload)
-  });
-  return res.json();
-}
-
-// ====================== IMAGE UPLOAD ======================
-async function uploadImageToDrive_(file, dataUrl){
-  const payload = {
-    action: "uploadImage",
-    folder_id: DRIVE_FOLDER_ID,
-    filename: file.name || `it_${Date.now()}.jpg`,
-    mime_type: file.type || "image/jpeg",
-    data_url: dataUrl
-  };
-  const res = await postJsonNoPreflight_(GAS_URL, payload);
-  if (!res?.ok) throw new Error(res?.error || "uploadImage failed");
-  return res;
-}
-
-function fileToDataUrl_(file){
-  return new Promise((resolve,reject)=>{
-    const fr = new FileReader();
-    fr.onload = () => resolve(String(fr.result));
-    fr.onerror = reject;
-    fr.readAsDataURL(file);
-  });
-}
-
-// ====================== FX ======================
-function getFxMap_(){ return load(LS.fx, {}); }
-function toTwd_(e, fxMap){
-  const amt = Number(e.amount||0);
-  if (e.currency === "TWD") return Math.round(amt);
-
-  const exactKey = `${e.date}:${e.currency}`;
-  let fx = Number(fxMap[exactKey] || 0);
-
-  if (!fx) {
-    const candidates = Object.keys(fxMap).filter(k => k.endsWith(`:${e.currency}`));
-    if (candidates.length) fx = Number(fxMap[candidates.sort().pop()] || 0);
-  }
-  if (!fx) fx = 1;
-  return Math.round(amt * fx);
-}
-function sumTwd_(items, fxMap){ return Math.round(items.reduce((s,e)=> s + toTwd_(e, fxMap), 0)); }
-
-// ====================== RENDER ALL ======================
-function renderAll_(){
-  updateSyncBadge_();
-
+// ====================== INIT ======================
+(function init(){
+  // restore tab
   const ui = load(LS.ui, {});
   if (ui.tab && ["itinerary","expenses","analysis"].includes(ui.tab)) state.tab = ui.tab;
 
-  setTab_(state.tab);
-  renderItinerary_();
-  renderExpenses_();
-  if (state.tab === "analysis") renderAnalysis_();
+  // defaults
+  expCurrency.value = "TWD";
+
+  buildDateStrip();
+  buildItCatChooser();
+  buildSplitChooser();
+  buildFilterModal();
+  attachEvents();
+  setupEdgeGestures();
+  setupPullToRefresh([pageIt, pageEx, pageAn]);
+  setupViewer();
+
+  renderHeader();
+  setInterval(renderHeader, 60*1000);
+
+  setTab(state.tab);
+  updateSyncBadge();
+
+  // initial pull if online
+  if (navigator.onLine){
+    pullAll().then(() => renderAll()).catch(() => renderAll());
+  } else {
+    renderAll();
+  }
+})();
+
+function renderAll(){
+  updateSyncBadge();
+  if (state.tab === "itinerary") renderItinerary();
+  if (state.tab === "analysis") renderAnalysis();
+  // expenses page is input-only, no list rendering
 }
 
-// ====================== STARTUP DEFAULTS ======================
-(function startup_(){
-  // make sure date strip starts at trip start
-  state.selectedDate = fmtDate(tripStartD);
-})();
+// ====================== MODALS ======================
+function openFilterModal(){ modalFilter.classList.remove("hidden"); }
+function closeFilterModal(){ modalFilter.classList.add("hidden"); }
+
+// ====================== Itinerary modal close helper ======================
+function closeItModal(){ modalItinerary.classList.add("hidden"); }
+
+// ====================== Viewer hooks from itinerary cards ======================
+function openViewer(src){
+  viewerImg.src = src;
+  modalViewer.classList.remove("hidden");
+  state.viewer.scale = 1;
+  state.viewer.tx = 0;
+  state.viewer.ty = 0;
+  viewerImg.style.transform = `translate(0px,0px) scale(1)`;
+}
+function closeViewer(){ modalViewer.classList.add("hidden"); }
