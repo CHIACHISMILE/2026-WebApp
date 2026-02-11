@@ -216,6 +216,22 @@ body{
 }
 .hidden{ display:none !important; }
 
+/* ===== Fix: time inputs overlap (iOS) ===== */
+.modal-body .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.time-input { width: 100%; max-width: 100%; }
+
+/* 如果你想「框框縮短一點」讓兩欄看起來更鬆，可用這個： */
+.modal-body .grid > .field { min-width: 0; }
+.time-input { padding-left: 10px; padding-right: 10px; font-size: 14px; }
+
+/* ===== Pending (offline + not uploaded) ===== */
 .pending-card { border: 2px dashed rgba(251,146,60,.95) !important; }
-.pending-badge { padding: 2px 8px; border-radius: 999px; border: 1px dashed rgba(251,146,60,.95); color: rgba(251,146,60,.95); }
+.pending-badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px dashed rgba(251,146,60,.95);
+  color: rgba(251,146,60,.95);
+}
+
+/* ===== Link style inside editable ===== */
 .link-soft { text-decoration: underline; color: rgba(191,233,255,0.98); }
