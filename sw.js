@@ -13,7 +13,6 @@ self.addEventListener("activate", (e) => {
 
 self.addEventListener("fetch", (e) => {
   const req = e.request;
-  // Cache-first for static assets
   e.respondWith(
     caches.match(req).then((cached) => cached || fetch(req).catch(() => caches.match("./index.html")))
   );
