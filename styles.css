@@ -50,15 +50,17 @@ body { -webkit-touch-callout: default; }
 
 /* --- 卡片優化 (邊界增強) --- */
 .glass-card {
-  position: relative;
-  background: #FFFFFF;
-  /* 修改點：邊框加深為 #CBD5E1 (Slate-300)，讓邊界清楚可見 */
-  border: 1px solid #CBD5E1; 
-  border-radius: 16px;
-  /* 修改點：陰影稍微加深一點點，增加立體感 */
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  
+  /* 修改：將邊框改為深一點的藍灰色，確保肉眼可見 */
+  border: 1px solid rgba(203, 213, 225, 0.8); /* Tailwind slate-300 */
+  
+  border-radius: 20px;
+  /* 增加陰影層次感，讓卡片更立體 */
   box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
-  transition: transform 0.2s;
-  overflow: hidden;
+  transition: transform 0.2s cubic-bezier(0.25, 0.8, 0.25, 1);
 }
 .glass-card:active { transform: scale(0.99); }
 
@@ -142,17 +144,34 @@ body { -webkit-touch-callout: default; }
 }
 
 /* --- Tab Bar --- */
+/* --- 2. 分頁導覽列加強 (修復不知道選到哪一頁) --- */
 .tab-bar {
   background: rgba(255, 255, 255, 0.95);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  border-bottom: 1px solid #E2E8F0;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid rgba(203, 213, 225, 0.8); /* 加深底線 */
+  box-shadow: 0 -4px 20px rgba(0,0,0,0.05); /* 增加一點往上的陰影 */
 }
-.tab-btn { color: #94a3b8; transition: all 0.3s; }
-.tab-active { color: #475569; font-weight: 800; }
+
+.tab-btn { 
+  color: #94a3b8; /* 未選取時：淺灰 */
+  transition: all 0.3s ease;
+  font-weight: 600;
+}
+.tab-active { 
+  color: #0369a1; /* 選取時：深藍 (Sky-700) */
+  background-color: rgba(224, 242, 254, 0.5); /* 增加淡淡的藍色背景 */
+  position: relative; 
+}
+/* 選取時底部的藍色橫條 */
 .tab-active::after {
-  content: ''; position: absolute; bottom: 0; left: 40%; width: 20%; height: 3px;
-  background: #475569; border-radius: 3px 3px 0 0;
+  content: '';
+  position: absolute;
+  bottom: 0; left: 25%; /* 縮短一點，比較優雅 */
+  width: 50%; height: 3px;
+  background: #0284c7;
+  border-radius: 3px 3px 0 0;
+  box-shadow: 0 -2px 6px rgba(2, 132, 199, 0.4);
 }
 
 /* --- 共用工具 --- */
