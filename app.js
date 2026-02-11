@@ -71,32 +71,41 @@ createApp({
     };
 
     // --- Color Logic ---
+    // --- [修改需求 5] 配色邏輯更新：使用莫蘭迪低飽和色系 ---
+    // 我們使用 Tailwind 的任意值語法 (JIT) 或是標準的低飽和度色階 (200/300) 搭配深色文字 (700/800)
+    
     const getExpenseColor = (item) => {
       const s = String(item || '');
-      if (s.includes('交通') || s.includes('機票') || s.includes('租車') || s.includes('油')) return 'bg-blue-400';
-      if (s.includes('住宿') || s.includes('飯店')) return 'bg-amber-400';
-      if (['早餐','午餐','晚餐','零食','飲料','超市'].some(k => s.includes(k))) return 'bg-orange-400';
-      if (['門票','景點','遊玩','極光'].some(k => s.includes(k))) return 'bg-violet-400';
-      return 'bg-slate-400';
+      // 交通/機票/租車 -> 冰川藍 (Glacier Blue)
+      if (s.includes('交通') || s.includes('機票') || s.includes('租車') || s.includes('油')) return 'bg-[#89A7B1]'; 
+      // 住宿 -> 暖沙色 (Sand)
+      if (s.includes('住宿') || s.includes('飯店')) return 'bg-[#D6C6B0]'; 
+      // 飲食 -> 杏色/乾燥橘 (Apricot)
+      if (['早餐','午餐','晚餐','零食','飲料','超市'].some(k => s.includes(k))) return 'bg-[#E8C4B5]';
+      // 玩樂 -> 薰衣草紫 (Lavender)
+      if (['門票','景點','遊玩','極光'].some(k => s.includes(k))) return 'bg-[#B5B9D0]';
+      // 其他 -> 淺灰 (Mist)
+      return 'bg-[#CBD5E1]';
     };
 
     const getCategoryColor = (cat) => {
       switch(cat) {
-        case '交通': return 'bg-blue-400';
-        case '住宿': return 'bg-amber-400';
-        case '景點': return 'bg-violet-400';
-        case '飲食': return 'bg-orange-400';
-        default: return 'bg-slate-400';
+        case '交通': return 'bg-[#89A7B1]'; // Glacier
+        case '住宿': return 'bg-[#D6C6B0]'; // Sand
+        case '景點': return 'bg-[#B5B9D0]'; // Lavender
+        case '飲食': return 'bg-[#E8C4B5]'; // Apricot
+        default: return 'bg-[#CBD5E1]';     // Mist
       }
     };
     
+    // Tag 標籤的顏色也要調淡，使用 bg-opacity 或更淡的色階
     const getItemTagClass = (item) => {
       const s = String(item || '');
-      if (s.includes('交通') || s.includes('機票')) return 'bg-blue-50 text-blue-600';
-      if (s.includes('住宿')) return 'bg-amber-50 text-amber-600';
-      if (['早餐','午餐','晚餐','零食'].some(k => s.includes(k))) return 'bg-orange-50 text-orange-600';
-      if (['紀念品'].some(k => s.includes(k))) return 'bg-pink-50 text-pink-600';
-      return 'bg-slate-100 text-slate-500';
+      if (s.includes('交通') || s.includes('機票')) return 'bg-[#F0F7FA] text-[#5A7B85]';
+      if (s.includes('住宿')) return 'bg-[#FAF8F3] text-[#8C7B65]';
+      if (['早餐','午餐','晚餐','零食'].some(k => s.includes(k))) return 'bg-[#FFF5F2] text-[#A67C6D]';
+      if (['紀念品'].some(k => s.includes(k))) return 'bg-[#FFF0F5] text-[#A86F7A]'; // 乾燥玫瑰
+      return 'bg-slate-50 text-slate-500';
     };
 
     // --- Image Gesture ---
@@ -289,8 +298,8 @@ createApp({
     const renderChart = () => {
       const canvas = document.getElementById('expenseChart'); if (!canvas) return;
       const stats = buildStats(); const labels = Object.keys(stats); const data = Object.values(stats);
-      // Colors: Blue, Amber, Violet, Orange, Emerald, Rose, Slate
-      const nordicColors = ['#60A5FA', '#FBBF24', '#A78BFA', '#FB923C', '#34D399', '#F472B6', '#94A3B8'];
+      // Glacier, Sand, Lavender, Apricot, Sage, Rose, Mist
+      const nordicColors = ['#89A7B1', '#D6C6B0', '#B5B9D0', '#E8C4B5', '#9EB5A5', '#D4A5A5', '#CBD5E1'];
       if (chartInstance) { chartInstance.data.labels = labels; chartInstance.data.datasets[0].data = data; chartInstance.data.datasets[0].backgroundColor = labels.map((_,i)=>nordicColors[i % nordicColors.length]); chartInstance.update('none'); } 
       else { chartInstance = new Chart(canvas, { type: 'doughnut', data: { labels, datasets: [{ data, backgroundColor: labels.map((_,i)=>nordicColors[i % nordicColors.length]), borderWidth: 0, hoverOffset: 4 }] }, options: { responsive: true, maintainAspectRatio: false, cutout: '70%', animation: { duration: 800 }, plugins: { legend: { position: 'bottom', labels: { font: { family: 'Inter', size: 11, weight: 'bold' }, color: '#64748b', usePointStyle: true, padding: 12, boxWidth: 8 } } } } }); }
       chartBusy.value = false;
