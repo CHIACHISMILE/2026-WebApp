@@ -20,7 +20,8 @@ body { -webkit-touch-callout: default; }
   top: 0; left: 0;
   width: 100%;
   height: 100dvh;
-  background: linear-gradient(160deg, #dbeafe 0%, #eff6ff 40%, #f0f9ff 100%);
+  /* 更極簡、更像 Apple 的淡雅漸層 */
+  background: linear-gradient(180deg, #F5F7FA 0%, #EBF4FF 100%);
   z-index: -1;
   pointer-events: none;
 }
@@ -47,14 +48,16 @@ body { -webkit-touch-callout: default; }
   touch-action: pan-y;
 }
 
+/* --- 2. 玻璃卡片優化：更薄、更透、陰影更柔和 --- */
 .glass-card {
-  background: rgba(255, 255, 255, 0.85);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.8);
+  background: rgba(255, 255, 255, 0.75); /* 降低白底不透明度 */
+  backdrop-filter: blur(20px) saturate(180%); /* 加強模糊與飽和度(Apple Glass Effect) */
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.6);
   border-radius: 20px;
-  box-shadow: 0 4px 15px rgba(148, 163, 184, 0.08);
-  transition: transform 0.15s ease-out;
+  /* 更擴散、更淡的陰影 */
+  box-shadow: 0 8px 32px rgba(31, 38, 135, 0.05);
+  transition: transform 0.2s cubic-bezier(0.25, 0.8, 0.25, 1);
 }
 .glass-card:active { transform: scale(0.99); }
 
@@ -145,11 +148,26 @@ body { -webkit-touch-callout: default; }
   flex-shrink: 0;
 }
 
-.cat-traffic { border-left: 4px solid #3b82f6; background: white; }
-.cat-stay    { border-left: 4px solid #eab308; background: white; }
-.cat-spot    { border-left: 4px solid #a855f7; background: white; }
-.cat-food    { border-left: 4px solid #f97316; background: white; }
-.cat-note    { border-left: 4px solid #64748b; background: white; }
+.cat-traffic { 
+  border-left: 6px solid #93C5FD !important; 
+  background: linear-gradient(90deg, #F0F9FF 0%, rgba(255,255,255,0) 100%);
+}
+.cat-stay { 
+  border-left: 6px solid #FDE68A !important; 
+  background: linear-gradient(90deg, #FFFBEB 0%, rgba(255,255,255,0) 100%);
+}
+.cat-spot { 
+  border-left: 6px solid #C4B5FD !important; 
+  background: linear-gradient(90deg, #F5F3FF 0%, rgba(255,255,255,0) 100%);
+}
+.cat-food { 
+  border-left: 6px solid #FDBA74 !important; 
+  background: linear-gradient(90deg, #FFF7ED 0%, rgba(255,255,255,0) 100%);
+}
+.cat-note { 
+  border-left: 6px solid #CBD5E1 !important; 
+  background: linear-gradient(90deg, #F8FAFC 0%, rgba(255,255,255,0) 100%);
+}
 
 .allow-select {
   user-select: text !important;
@@ -172,13 +190,13 @@ body { -webkit-touch-callout: default; }
 .pending-sync { opacity: 0.85; border: 2px dashed #f59e0b !important; position: relative; }
 .pending-badge { display: none; }
 
-.tag { display:inline-flex; align-items:center; padding: 2px 8px; border-radius: 999px; font-size: 10px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
-.tag-food { background:#fff7ed; color:#c2410c; border:1px solid #ffedd5; }
-.tag-stay { background:#fefce8; color:#a16207; border:1px solid #fef9c3; }
-.tag-traffic { background:#eff6ff; color:#1d4ed8; border:1px solid #dbeafe; }
-.tag-ticket { background:#eef2ff; color:#4338ca; border:1px solid #e0e7ff; }
-.tag-shop { background:#fdf2f8; color:#be185d; border:1px solid #fce7f3; }
-.tag-other { background:#f1f5f9; color:#334155; border:1px solid #e2e8f0; }
+.tag { display:inline-flex; align-items:center; padding: 3px 10px; border-radius: 8px; font-size: 10px; font-weight: 700; letter-spacing: 0.05em; }
+.tag-traffic { background:#EFF6FF; color:#60A5FA; } /* 藍 */
+.tag-stay    { background:#FFFBEB; color:#F59E0B; } /* 黃 */
+.tag-food    { background:#FFF7ED; color:#FB923C; } /* 橘 */
+.tag-shop    { background:#FDF2F8; color:#F472B6; } /* 粉紅 */
+.tag-ticket  { background:#EEF2FF; color:#818CF8; } /* 紫藍 */
+.tag-other   { background:#F1F5F9; color:#94A3B8; } /* 灰 */
 
 .filter-chip {
     display: inline-flex;
