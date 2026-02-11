@@ -546,6 +546,14 @@ createApp({
         default: return 'cat-note';
       }
     };
+    const getExpenseCatClass = (item) => {
+      const s = String(item || '');
+      if (s.includes('交通') || s.includes('機票') || s.includes('租車')) return 'cat-traffic';
+      if (s.includes('住宿')) return 'cat-stay';
+      if (['早餐','午餐','晚餐','零食','飲料'].some(k => s.includes(k))) return 'cat-food';
+      if (['門票','景點','遊玩'].some(k => s.includes(k))) return 'cat-spot';
+      return 'cat-note'; // 購物或其他
+    };
 
     const getEvents = (d) => itinerary.value.filter(e => e.date === d).sort((a,b)=>a.startTime.localeCompare(b.startTime));
     const formatNumber = (n) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
@@ -667,7 +675,16 @@ createApp({
       const labels = Object.keys(stats);
       const data = Object.values(stats);
 
-      const nordicColors = ['#38bdf8', '#818cf8', '#c084fc', '#f472b6', '#fb7185', '#22d3ee', '#34d399', '#a78bfa', '#fbcfe8', '#e2e8f0'];
+      const nordicColors = [
+        '#93C5FD', // Baby Blue
+        '#FDE68A', // Vanilla
+        '#C4B5FD', // Lavender
+        '#FDBA74', // Apricot
+        '#86EFAC', // Mint
+        '#FCA5A5', // Rose
+        '#CBD5E1', // Slate
+        '#A5B4FC'  // Periwinkle
+      ];
 
       if (chartInstance) {
         chartInstance.data.labels = labels;
@@ -905,7 +922,7 @@ createApp({
       pullDistance, isPullRefreshing, refreshText,
       tripStatus, tripDates, selDate,
       itinerary, 
-      selectDate, getDayInfo, getEvents, getCategoryClass,
+      selectDate, getDayInfo, getEvents, getCategoryClass,getExpenseCatClass,
       expenses, rates, members, 
       filters, showFilterMenu, uniqueExpDates, uniqueItems, uniqueLocations, uniquePayments,
       resetFilters, hasActiveFilters, filteredExpenses,
