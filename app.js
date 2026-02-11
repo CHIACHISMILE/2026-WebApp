@@ -188,39 +188,56 @@ createApp({
     const clearLongPress = () => { if (gesture.longPressTimer) { clearTimeout(gesture.longPressTimer); gesture.longPressTimer = null; } };
     
     const attachGestureListeners = () => {
-      const el = scrollContainer.value; if (!el) return;
-      
+      // 修改 1: 監聽器要綁在整個視窗，而不是只有 scrollContainer
+      // 這樣手指在標題列 (Header) 滑動時也能觸發
+      const targetEl = window; 
+      const contentEl = scrollContainer.value; // 用來檢查是否已經捲動到底
+    
       const onTouchStart = (e) => {
         const t = e.touches[0]; 
-        gesture.active = true; gesture.mode = null; gesture.dx = 0; gesture.dy = 0; gesture.startX = t.clientX; gesture.startY = t.clientY;
-        const w = window.innerWidth; gesture.startedAtLeftEdge = (gesture.startX <= w * 0.15); gesture.startedAtRightEdge = (gesture.startX >= w * 0.85);
+        gesture.active = true; gesture.mode = null; gesture.dx = 0; gesture.dy = 0; 
+        gesture.startX = t.clientX; gesture.startY = t.clientY;
         
-        // 修改點：判斷是否為「標題列下拉」。假設標題列高度約 140px
-        const isHeaderPull = t.clientY < 140; 
-        // 只有當「點擊位置在標題列」且「目前內容捲動到頂部」時，才允許下拉
-        gesture.allowPull = isHeaderPull && (el.scrollTop <= 0);
-
-        gesture.inSelectable = !!e.target.closest('.allow-select'); gesture.selectIntent = false; clearLongPress();
+        const w = window.innerWidth; 
+        gesture.startedAtLeftEdge = (gesture.startX <= w * 0.15); 
+        gesture.startedAtRightEdge = (gesture.startX >= w * 0.85);
+        
+        // 判斷是否為「標題列下拉」(Y < 140)
+        const isHeaderPull = t.clientY < 140;
+        
+        // 判斷邏輯更新：
+        // 1. 如果摸的是標題列 (isHeaderPull) -> 永遠允許下拉 (因為標題列本身不會捲動)
+        // 2. 如果摸的是內容區 -> 只有當內容區捲到最頂端 (scrollTop <= 0) 才允許下拉
+        if (isHeaderPull) {
+            gesture.allowPull = true;
+        } else {
+            gesture.allowPull = (contentEl && contentEl.scrollTop <= 0);
+        }
+    
+        gesture.inSelectable = !!e.target.closest('.allow-select'); 
+        gesture.selectIntent = false; clearLongPress();
         if (gesture.inSelectable) gesture.longPressTimer = setTimeout(() => { gesture.selectIntent = true; }, 220);
         gesture.blocked = isBlockedTarget(e.target);
       };
-
+    
       const onTouchMove = (e) => {
         if (!gesture.active || gesture.blocked) return;
-        const t = e.touches[0]; const dx = t.clientX - gesture.startX; const dy = t.clientY - gesture.startY;
+        const t = e.touches[0]; 
+        const dx = t.clientX - gesture.startX; 
+        const dy = t.clientY - gesture.startY;
         gesture.dx = dx; gesture.dy = dy;
         
         if (gesture.inSelectable) { if (Math.abs(dx) > 10 || Math.abs(dy) > 10) clearLongPress(); }
         if (gesture.inSelectable && (gesture.selectIntent || hasTextSelection())) return;
-
+    
         if (!gesture.mode) { if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return; gesture.mode = (Math.abs(dx) > Math.abs(dy)) ? 'h' : 'v'; }
         
         if (gesture.mode === 'h') { 
             if ((gesture.startedAtLeftEdge || gesture.startedAtRightEdge) && e.cancelable) e.preventDefault(); 
         } 
         else if (gesture.mode === 'v') {
-          // 修改點：嚴格檢查 allowPull 旗標
           if (gesture.allowPull && dy > 0) { 
+             // 關鍵修改：如果是標題列下拉，或者內容區在頂部，都要阻止原生捲動行為，改成我們的下拉動畫
              if (e.cancelable) e.preventDefault(); 
              pullDistance.value = Math.min(72, Math.pow(dy, 0.7)); 
           } else { 
@@ -228,10 +245,12 @@ createApp({
           }
         }
       };
-
+    
       const onTouchEnd = () => {
         if (!gesture.active) return; gesture.active = false; clearLongPress();
         if (pullDistance.value > 60) { pullDistance.value = 60; isPullRefreshing.value = true; loadData(); } else { pullDistance.value = 0; }
+        
+        // 左右滑動切換分頁邏輯維持不變
         if (gesture.mode === 'h' && Math.abs(gesture.dx) > 60) {
            if (!gesture.inSelectable || (!gesture.selectIntent && !hasTextSelection())) {
                if (gesture.startedAtLeftEdge && gesture.dx > 0) { if (tab.value === 'expense') tab.value = 'itinerary'; else if (tab.value === 'analysis') tab.value = 'expense'; }
@@ -241,12 +260,20 @@ createApp({
         }
         gesture.mode = null; gesture.inSelectable = false; gesture.selectIntent = false; gesture.allowPull = false;
       };
+    
       attachGestureListeners._handlers = { onTouchStart, onTouchMove, onTouchEnd };
-      el.addEventListener('touchstart', onTouchStart, { passive: true }); el.addEventListener('touchmove',  onTouchMove,  { passive: false }); el.addEventListener('touchend',   onTouchEnd,   { passive: true });
+      // 修改 2: 將監聽器綁定到 window (或 targetEl)
+      targetEl.addEventListener('touchstart', onTouchStart, { passive: true }); 
+      targetEl.addEventListener('touchmove',  onTouchMove,  { passive: false }); 
+      targetEl.addEventListener('touchend',   onTouchEnd,   { passive: true });
     };
     const detachGestureListeners = () => {
-      const el = scrollContainer.value; const h = attachGestureListeners._handlers; if (!el || !h) return;
-      el.removeEventListener('touchstart', h.onTouchStart); el.removeEventListener('touchmove', h.onTouchMove); el.removeEventListener('touchend', h.onTouchEnd); attachGestureListeners._handlers = null;
+      const targetEl = window; // 這裡要跟上面的 targetEl 一致
+      const h = attachGestureListeners._handlers; if (!targetEl || !h) return;
+      targetEl.removeEventListener('touchstart', h.onTouchStart); 
+      targetEl.removeEventListener('touchmove', h.onTouchMove); 
+      targetEl.removeEventListener('touchend', h.onTouchEnd); 
+      attachGestureListeners._handlers = null;
     };
 
     const saveLocal = (data) => { try { localStorage.setItem('tripData_v36', JSON.stringify({ expenses: expenses.value, itinerary: itinerary.value, members: members.value, rates: rates.value })); localStorage.setItem('syncQueue_v36', JSON.stringify(syncQueue.value)); } catch(e){} };
