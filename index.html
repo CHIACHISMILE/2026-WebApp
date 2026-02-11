@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="2026冰島挪威之旅" />
+  <meta name="theme-color" content="#9ad7ff" />
+
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="stylesheet" href="./styles.css" />
+
+  <!-- Tailwind CDN (MVP用；之後可改成自行打包) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Chart.js for Analysis -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+  <title>2026冰島挪威之旅</title>
+</head>
+
+<body class="bg-slate-950 text-slate-50 select-text">
+  <div id="app" class="app-shell">
+    <!-- Header (Top 1/5) -->
+    <header class="app-header px-4 pt-4 pb-3">
+      <div class="flex items-start justify-between gap-3">
+        <div class="min-w-0">
+          <h1 class="text-xl font-semibold tracking-tight truncate">2026冰島挪威之旅</h1>
+          <div class="text-sm text-slate-200/90 mt-1">2026/08/30–09/26</div>
+          <div class="text-sm mt-2">
+            <span id="tripDayLabel" class="pill pill-sky">倒數 -- 日</span>
+            <span id="todayLabel" class="pill pill-ice ml-2">--/--（---）</span>
+          </div>
+        </div>
+
+        <div class="shrink-0 text-right">
+          <div class="text-xs text-slate-200/80">狀態</div>
+          <div id="syncStatus" class="mt-1 inline-flex items-center gap-2">
+            <span class="dot dot-wait"></span>
+            <span class="text-sm">待同步</span>
+          </div>
+          <button id="btnForceSync" class="mt-3 btn btn-ghost text-sm">手動同步</button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Content (Bottom 4/5) -->
+    <main class="app-content">
+      <!-- Tab Header -->
+      <nav class="tabbar px-2">
+        <button class="tab active" data-tab="itinerary">行程</button>
+        <button class="tab" data-tab="expenses">記帳</button>
+        <button class="tab" data-tab="analysis">分析</button>
+      </nav>
+
+      <!-- Pages (edge-swipe changes page) -->
+      <section id="pages" class="pages">
+        <!-- ITINERARY -->
+        <article id="page-itinerary" class="page">
+          <div class="px-4 pt-3">
+            <!-- Date strip -->
+            <div class="date-strip" id="dateStrip"></div>
+
+            <div class="mt-3 flex items-center justify-between gap-2">
+              <div class="text-sm text-slate-200/90">
+                <span id="selectedDateLabel">--</span>
+                <span class="mx-2 text-slate-400">•</span>
+                <span id="selectedDayIndexLabel">Day --</span>
+              </div>
+              <button id="btnAddItinerary" class="btn btn-primary">新增行程</button>
+            </div>
+
+            <div class="mt-3">
+              <div id="itineraryList" class="space-y-3 pb-24"></div>
+              <div class="mt-6 pb-24">
+                <button id="btnAddItineraryBottom" class="btn btn-outline w-full">＋ 新增行程</button>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <!-- EXPENSES -->
+        <article id="page-expenses" class="page hidden">
+          <div class="px-4 pt-3 pb-24">
+            <div class="card p-4">
+              <div class="grid grid-cols-2 gap-3">
+                <label class="field">
+                  <div class="field-label">你是誰</div>
+                  <select id="expWho" class="field-input">
+                    <option>家齊</option>
+                    <option>亭穎</option>
+                    <option>媽媽</option>
+                  </select>
+                </label>
+
+                <label class="field">
+                  <div class="field-label">在哪消費</div>
+                  <select id="expWhere" class="field-input">
+                    <option>臺灣</option>
+                    <option>挪威</option>
+                    <option>冰島</option>
+                    <option>杜拜</option>
+                    <option>英國</option>
+                  </select>
+                </label>
+
+                <label class="field col-span-2">
+                  <div class="field-label">消費類別</div>
+                  <select id="expCategory" class="field-input">
+                    <option>早餐</option><option>午餐</option><option>晚餐</option><option>零食</option>
+                    <option>住宿</option>
+                    <option>交通（機票）</option><option>交通（租車）</option><option>交通（停車費）</option>
+                    <option>交通（油錢）</option><option>交通（電費）</option>
+                    <option>紀念品</option><option>門票</option><option>其他</option>
+                  </select>
+                </label>
+
+                <label class="field">
+                  <div class="field-label">付款方式</div>
+                  <select id="expPay" class="field-input">
+                    <option>現金</option>
+                    <option>信用卡－國泰</option>
+                    <option>信用卡–永豐</option>
+                    <option>信用卡–元大</option>
+                  </select>
+                </label>
+
+                <label class="field">
+                  <div class="field-label">幣別</div>
+                  <select id="expCurrency" class="field-input">
+                    <option value="TWD" selected>TWD</option>
+                    <option value="NOK">NOK</option>
+                    <option value="ISK">ISK</option>
+                    <option value="EUR">EUR</option>
+                    <option value="GBP">GBP</option>
+                    <option value="AED">AED</option>
+                  </select>
+                </label>
+
+                <label class="field">
+                  <div class="field-label">金額</div>
+                  <input id="expAmount" class="field-input" inputmode="decimal" placeholder="例如 350" />
+                </label>
+
+                <label class="field">
+                  <div class="field-label">消費名稱</div>
+                  <input id="expTitle" class="field-input" placeholder="例如 超市採買" />
+                </label>
+
+                <label class="field col-span-2">
+                  <div class="field-label">備註（選填）</div>
+                  <input id="expNote" class="field-input" placeholder="例如 含紀念品" />
+                </label>
+
+                <div class="col-span-2">
+                  <div class="flex items-center justify-between">
+                    <div class="field-label">分攤</div>
+                    <button id="btnSplitAll" class="btn btn-ghost text-sm">全選</button>
+                  </div>
+                  <div class="mt-2 flex flex-wrap gap-2" id="splitChooser"></div>
+                </div>
+
+                <div class="col-span-2 mt-2">
+                  <button id="btnAddExpense" class="btn btn-primary w-full">確認記帳</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="mt-4">
+              <div class="flex items-center justify-between">
+                <h2 class="text-sm text-slate-200/90">消費紀錄</h2>
+                <button id="btnExpFilterQuick" class="btn btn-ghost text-sm">篩選</button>
+              </div>
+              <div id="expenseList" class="mt-3 space-y-3"></div>
+            </div>
+          </div>
+        </article>
+
+        <!-- ANALYSIS -->
+        <article id="page-analysis" class="page hidden">
+          <div class="px-4 pt-3 pb-24">
+            <div class="flex items-center justify-between">
+              <h2 class="text-sm text-slate-200/90">消費統計</h2>
+              <button id="btnFx" class="btn btn-ghost text-sm">匯率</button>
+            </div>
+
+            <div class="mt-3 card p-4">
+              <div class="flex items-end justify-between">
+                <div>
+                  <div class="text-xs text-slate-300/80">家齊＋亭穎 預算</div>
+                  <div class="text-2xl font-semibold" id="budgetRemain">NT$ --</div>
+                  <div class="text-sm text-slate-200/90 mt-1">
+                    已支出 <span id="budgetSpent">NT$ --</span>
+                  </div>
+                </div>
+                <div class="text-right text-xs text-slate-300/80">
+                  只計算：家齊＋亭穎
+                </div>
+              </div>
+
+              <div class="mt-4 progress">
+                <div id="budgetBar" class="progress-bar"></div>
+              </div>
+            </div>
+
+            <div class="mt-4 card p-4">
+              <div class="flex items-center justify-between">
+                <div class="text-sm text-slate-200/90">總消費（依篩選）</div>
+                <button id="btnFilter" class="btn btn-ghost text-sm">多重篩選</button>
+              </div>
+              <div class="mt-3">
+                <canvas id="pie" height="220"></canvas>
+              </div>
+            </div>
+
+            <div class="mt-4">
+              <div class="flex items-center justify-between">
+                <h2 class="text-sm text-slate-200/90">消費明細</h2>
+                <div id="filterChips" class="flex flex-wrap justify-end gap-2"></div>
+              </div>
+              <div id="analysisExpenseList" class="mt-3 space-y-3"></div>
+            </div>
+
+            <div class="mt-6 card p-4">
+              <div class="text-sm text-slate-200/90">分帳結算</div>
+              <div class="mt-2 text-sm text-slate-100" id="settlement">--</div>
+              <div class="mt-2 text-xs text-slate-300/80">（初版：以「分攤人數平均」簡化計算）</div>
+            </div>
+          </div>
+        </article>
+      </section>
+    </main>
+
+    <!-- Bottom safe area spacer for iPhone -->
+    <div class="safe-bottom"></div>
+  </div>
+
+  <!-- Itinerary Modal -->
+  <div id="modalItinerary" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-sheet">
+      <div class="modal-head">
+        <div class="text-base font-semibold">新增行程</div>
+        <button class="btn btn-ghost" id="btnCloseItinerary">關閉</button>
+      </div>
+
+      <div class="modal-body">
+        <div class="grid grid-cols-2 gap-3">
+          <label class="field">
+            <div class="field-label">開始時間</div>
+            <input id="itStart" type="time" class="field-input" />
+          </label>
+          <label class="field">
+            <div class="field-label">結束時間</div>
+            <input id="itEnd" type="time" class="field-input" />
+          </label>
+
+          <div class="col-span-2">
+            <div class="field-label">類別</div>
+            <div class="mt-2 flex flex-wrap gap-2" id="itCatChooser"></div>
+          </div>
+
+          <div class="col-span-2">
+            <div class="flex items-center justify-between">
+              <div class="field-label">標題（可插入超連結）</div>
+              <button id="btnLinkTitle" class="btn btn-ghost text-sm">插入連結</button>
+            </div>
+            <div id="itTitle" class="editable" contenteditable="true" placeholder="例如 藍湖泡湯"></div>
+          </div>
+
+          <label class="field col-span-2">
+            <div class="flex items-center justify-between">
+              <div class="field-label">地址／Google Map 連結</div>
+              <button id="btnOpenMap" class="btn btn-ghost text-sm">Map</button>
+            </div>
+            <input id="itAddress" class="field-input" placeholder="地址或 https://maps..." />
+          </label>
+
+          <div class="col-span-2">
+            <div class="flex items-center justify-between">
+              <div class="field-label">備註（可插入超連結）</div>
+              <button id="btnLinkNote" class="btn btn-ghost text-sm">插入連結</button>
+            </div>
+            <div id="itNote" class="editable" contenteditable="true" placeholder="例如 建議提前預約"></div>
+          </div>
+
+          <label class="field col-span-2">
+            <div class="field-label">圖片（初版：本地顯示；可後續接Drive同步）</div>
+            <input id="itImage" type="file" accept="image/*" class="field-input" />
+            <div id="itImagePreview" class="mt-2"></div>
+          </label>
+        </div>
+      </div>
+
+      <div class="modal-foot">
+        <button id="btnCancelIt" class="btn btn-outline">取消</button>
+        <button id="btnSaveIt" class="btn btn-primary">新增行程</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Filter Modal (Analysis) -->
+  <div id="modalFilter" class="modal hidden">
+    <div class="modal-sheet">
+      <div class="modal-head">
+        <div class="text-base font-semibold">多重篩選</div>
+        <button class="btn btn-ghost" id="btnCloseFilter">關閉</button>
+      </div>
+
+      <div class="modal-body">
+        <div class="text-xs text-slate-300/80">可複選，按套用後更新圓餅圖與明細</div>
+
+        <div class="mt-4 space-y-4">
+          <div>
+            <div class="field-label">你是誰</div>
+            <div class="mt-2 flex flex-wrap gap-2" data-filter-group="who"></div>
+          </div>
+          <div>
+            <div class="field-label">在哪消費</div>
+            <div class="mt-2 flex flex-wrap gap-2" data-filter-group="where"></div>
+          </div>
+          <div>
+            <div class="field-label">消費類別</div>
+            <div class="mt-2 flex flex-wrap gap-2" data-filter-group="category"></div>
+          </div>
+          <div>
+            <div class="field-label">付款方式</div>
+            <div class="mt-2 flex flex-wrap gap-2" data-filter-group="pay"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-foot">
+        <button id="btnClearFilter" class="btn btn-outline">清除</button>
+        <button id="btnApplyFilter" class="btn btn-primary">套用</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="./app.js"></script>
+</body>
+</html>
