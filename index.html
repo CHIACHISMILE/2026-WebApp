@@ -314,7 +314,7 @@
 
         <div class="space-y-3 mb-8">
           <div v-for="exp in filteredExpenses" :key="exp.row"
-               :class="['glass-card p-4 transition hover:shadow-md border-l-4 border-l-sky-400', isItemPending(exp.row) ? 'pending-sync' : '']">
+               :class="['glass-card p-4 transition hover:shadow-md mb-3', isItemPending(exp.row) ? 'pending-sync' : '', getExpenseCatClass(exp.item)]">
             <div class="flex justify-between items-start gap-4">
               <div class="min-w-0">
                 <div class="flex items-center gap-2 flex-wrap">
