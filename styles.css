@@ -1,237 +1,388 @@
+/* =========================================================
+   2026 冰島挪威之旅 - Nordic Apple-like Theme
+   ========================================================= */
+
+/* --- Base --- */
 :root{
-  --ice: #bfe9ff;
-  --ice-2: #d9f3ff;
-  --fjord: #5eead4;
-  --slate: #102033; /* ✅ 整體變亮 */
-  --card: rgba(255,255,255,0.10); /* ✅ 卡片更亮 */
-  --line: rgba(255,255,255,0.14);
+  --bg-0: #f6fbff;
+  --bg-1: #eef6ff;
+  --ink-0: #0b1220;
+  --ink-1: rgba(11,18,32,.78);
+  --ink-2: rgba(11,18,32,.56);
+
+  --glass: rgba(255,255,255,.62);
+  --glass-strong: rgba(255,255,255,.78);
+  --glass-border: rgba(20,35,60,.10);
+  --shadow: 0 12px 40px rgba(20,35,60,.10);
+
+  --primary: #5aaee6;         /* glacier blue */
+  --primary-ink: #0b2a3a;
+  --primary-soft: rgba(90,174,230,.16);
+
+  --accent-moss: #4aa377;     /* moss green */
+  --accent-amber: #d79b4b;    /* nordic amber */
+  --accent-lav: #7a78c9;      /* lavender */
+  --accent-rose: #c86f86;     /* muted rose */
+  --accent-slate: #5b6b7a;
+
+  --radius-xl: 22px;
+  --radius-lg: 18px;
+  --radius-md: 14px;
+
+  --safe-top: env(safe-area-inset-top);
+  --safe-bottom: env(safe-area-inset-bottom);
 }
 
-*{ -webkit-tap-highlight-color: transparent; }
-html, body { height: 100%; }
+*{ box-sizing: border-box; }
+html, body{ height:100%; }
 body{
-  background:
-    radial-gradient(1200px 650px at 18% -10%, rgba(191,233,255,0.45), transparent 60%),
-    radial-gradient(950px 540px at 90% 8%, rgba(94,234,212,0.28), transparent 55%),
-    radial-gradient(1000px 520px at 50% 120%, rgba(255,255,255,0.10), transparent 60%),
-    var(--slate);
-  overflow: hidden;
+  margin:0;
+  background: radial-gradient(1200px 900px at 20% 0%, #d7efff 0%, rgba(215,239,255,0) 55%),
+              radial-gradient(900px 700px at 80% 10%, rgba(207,242,233,.85) 0%, rgba(207,242,233,0) 55%),
+              linear-gradient(180deg, var(--bg-0), var(--bg-1));
+  color: var(--ink-0);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
+/* --- Shell layout --- */
 .app-shell{
-  height: 100vh;
-  height: 100dvh;
-  padding-top: env(safe-area-inset-top);
+  min-height: 100vh;
+  display:flex;
+  flex-direction:column;
 }
 
 .app-header{
-  height: 20vh;
-  min-height: 132px;
-  border-bottom: 1px solid var(--line);
-  background: linear-gradient(180deg, rgba(255,255,255,0.10), rgba(255,255,255,0.04));
-  backdrop-filter: blur(12px);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  padding-top: calc(14px + var(--safe-top));
+  background: linear-gradient(180deg, rgba(246,251,255,.88), rgba(246,251,255,.70));
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border-bottom: 1px solid rgba(20,35,60,.08);
 }
 
 .app-content{
-  height: 80vh;
-  overflow: hidden;
+  flex:1;
   display:flex;
-  flex-direction: column;
+  flex-direction:column;
 }
 
-.tabbar{
-  display:flex;
-  gap: 6px;
-  padding-top: 10px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--line);
-}
+/* remove bottom blocker */
+.safe-bottom{ display:none !important; height:0 !important; }
 
-.tab{
-  flex: 1;
-  padding: 10px 10px;
-  border-radius: 14px;
-  font-size: 14px;
-  background: transparent;
-  color: rgba(255,255,255,0.78);
-}
-.tab.active{
-  background: linear-gradient(180deg, rgba(191,233,255,0.28), rgba(191,233,255,0.12));
-  color: white;
-  border: 1px solid rgba(191,233,255,0.40);
-}
-
-.pages{ flex: 1; overflow: hidden; position: relative; }
-.page{ height: 100%; overflow-y:auto; -webkit-overflow-scrolling: touch; }
-
-.safe-bottom{ height: env(safe-area-inset-bottom); }
-
-.card{
-  border: 1px solid var(--line);
-  background: var(--card);
-  border-radius: 18px;
-}
-
-.btn{
-  padding: 10px 12px;
-  border-radius: 14px;
-  border: 1px solid transparent;
-  font-weight: 600;
-}
-.btn-primary{
-  background: linear-gradient(180deg, rgba(191,233,255,0.95), rgba(191,233,255,0.72));
-  color: #06111a;
-}
-.btn-outline{
-  border-color: rgba(191,233,255,0.45);
-  background: rgba(191,233,255,0.12);
-}
-.btn-ghost{
-  border-color: rgba(255,255,255,0.16);
-  background: rgba(255,255,255,0.07);
-}
-
+/* --- Pills & dots --- */
 .pill{
   display:inline-flex;
   align-items:center;
   gap:8px;
-  padding: 6px 10px;
+  padding: 6px 12px;
   border-radius: 999px;
-  border: 1px solid rgba(255,255,255,0.16);
-  background: rgba(255,255,255,0.07);
+  font-size: 12px;
+  line-height: 1;
+  border: 1px solid rgba(20,35,60,.12);
+  background: rgba(255,255,255,.55);
+  color: var(--ink-1);
+  box-shadow: 0 10px 26px rgba(20,35,60,.08);
 }
-.pill-sky{ border-color: rgba(191,233,255,0.45); background: rgba(191,233,255,0.14); }
-.pill-ice{ border-color: rgba(217,243,255,0.40); background: rgba(217,243,255,0.12); }
+
+.pill-sky{
+  background: rgba(90,174,230,.18);
+  border-color: rgba(90,174,230,.22);
+  color: rgba(11,42,58,.88);
+}
+
+.pill-ice{
+  background: rgba(255,255,255,.60);
+}
 
 .dot{
-  width:10px;height:10px;border-radius:50%;
-  display:inline-block;border:1px solid rgba(255,255,255,0.36);
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  display:inline-block;
+  box-shadow: 0 0 0 3px rgba(255,255,255,.75);
 }
-.dot-ok{ background: rgba(94,234,212,0.95); }      /* ✅ 已同步 */
-.dot-wait{ background: rgba(255,255,255,0.35); }  /* 待上傳/待同步 */
-.dot-sync{ background: rgba(191,233,255,0.95); }  /* 同步中 */
-.dot-offline{ background: rgba(255,120,120,0.95); }
+.dot-ok{ background: rgba(74,163,119,.95); }
+.dot-sync{ background: rgba(90,174,230,.95); }
+.dot-offline{ background: rgba(91,107,122,.85); }
+.dot-wait{ background: rgba(215,155,75,.95); }
 
-.field{ min-width:0; } /* ✅ 防止 grid item overflow 造成重疊 */
-.field .field-label{
-  font-size:12px;color:rgba(255,255,255,0.72);margin-bottom:6px;
+/* --- Tabbar --- */
+.tabbar{
+  position: sticky;
+  top: calc(86px + var(--safe-top)); /* header height-ish */
+  z-index: 15;
+  padding: 10px 12px;
+  background: rgba(246,251,255,.75);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border-bottom: 1px solid rgba(20,35,60,.08);
+  display:flex;
+  gap:10px;
 }
 
+.tab{
+  flex:1;
+  padding: 10px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(20,35,60,.10);
+  background: rgba(255,255,255,.55);
+  color: var(--ink-1);
+  font-size: 14px;
+  font-weight: 600;
+}
+.tab.active{
+  background: rgba(90,174,230,.16);
+  border-color: rgba(90,174,230,.26);
+  color: rgba(11,42,58,.95);
+}
+
+.pages{ flex:1; }
+.page{ min-height: calc(100vh - 180px); }
+
+/* --- Cards --- */
+.card{
+  background: var(--glass);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow);
+}
+
+/* --- Buttons --- */
+.btn{
+  border-radius: 999px;
+  border: 1px solid rgba(20,35,60,.12);
+  padding: 10px 14px;
+  font-weight: 650;
+  color: rgba(11,18,32,.88);
+  background: rgba(255,255,255,.62);
+  box-shadow: 0 10px 26px rgba(20,35,60,.08);
+}
+.btn:active{ transform: translateY(1px); }
+
+.btn-primary{
+  background: rgba(90,174,230,.22);
+  border-color: rgba(90,174,230,.26);
+  color: rgba(11,42,58,.95);
+}
+.btn-outline{
+  background: rgba(255,255,255,.56);
+}
+.btn-ghost{
+  background: rgba(255,255,255,.0);
+  box-shadow: none;
+  border-color: rgba(20,35,60,.10);
+}
+
+/* --- Form fields --- */
+.field{ display:block; }
+.field-label{
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--ink-2);
+}
 .field-input{
-  width:100%;
-  min-width:0; /* ✅ 關鍵：避免 iOS time input 撐破 */
-  padding:10px 12px;
-  border-radius:14px;
-  border:1px solid rgba(255,255,255,0.16);
-  background: rgba(255,255,255,0.07);
-  color:white;
+  margin-top: 6px;
+  width: 100%;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(20,35,60,.12);
+  background: rgba(255,255,255,.72);
+  padding: 12px 12px;
+  font-size: 14px;
+  color: var(--ink-0);
+  outline: none;
 }
-.field-input::placeholder{ color: rgba(255,255,255,0.50); }
-
-/* ✅ 專門縮短 time 欄位避免重疊 */
-.time-input{
-  padding:8px 10px;
-  font-size:14px;
+.field-input:focus{
+  border-color: rgba(90,174,230,.36);
+  box-shadow: 0 0 0 4px rgba(90,174,230,.14);
 }
 
+/* fix iOS time input overlap */
+.modal-body .grid{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.modal-body .grid > .field{ min-width:0; }
+.time-input{ width:100%; padding-left: 10px; padding-right: 10px; font-size: 14px; }
+
+/* --- Editable blocks --- */
 .editable{
-  min-height:44px;
-  padding:10px 12px;
-  border-radius:14px;
-  border:1px solid rgba(255,255,255,0.16);
-  background: rgba(255,255,255,0.07);
-  color:white;
+  margin-top: 6px;
+  min-height: 46px;
+  padding: 12px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(20,35,60,.12);
+  background: rgba(255,255,255,.72);
+  color: var(--ink-0);
+  outline: none;
 }
-.editable[placeholder]:empty:before{
+.editable:empty:before{
   content: attr(placeholder);
-  color: rgba(255,255,255,0.50);
+  color: rgba(11,18,32,.35);
 }
 
+/* --- Date strip --- */
 .date-strip{
-  display:flex; gap:8px; overflow-x:auto;
-  -webkit-overflow-scrolling:touch; padding-bottom:8px;
+  display:flex;
+  overflow-x:auto;
+  gap: 10px;
+  padding: 6px 2px;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
 }
+.date-strip::-webkit-scrollbar{ display:none; }
+
 .date-chip{
   flex:0 0 auto;
-  padding:8px 10px;
-  border-radius:14px;
-  border:1px solid rgba(255,255,255,0.16);
-  background: rgba(255,255,255,0.06);
-  color: rgba(255,255,255,0.82);
-  font-size:12px;
+  scroll-snap-align: center;
+  padding: 10px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(20,35,60,.10);
+  background: rgba(255,255,255,.55);
+  font-size: 12px;
+  font-weight: 700;
+  color: rgba(11,18,32,.72);
 }
 .date-chip.active{
-  border-color: rgba(191,233,255,0.46);
-  background: rgba(191,233,255,0.16);
-  color: white;
+  background: rgba(90,174,230,.18);
+  border-color: rgba(90,174,230,.26);
+  color: rgba(11,42,58,.95);
 }
 
+/* --- Tags (Nordic palette) --- */
 .tag{
-  display:inline-flex; align-items:center; gap:6px;
-  padding:6px 10px; border-radius:999px; font-size:12px;
-  border:1px solid rgba(255,255,255,0.16);
-  background: rgba(255,255,255,0.07);
+  display:inline-flex;
+  align-items:center;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(20,35,60,.10);
+  background: rgba(255,255,255,.55);
+  font-size: 12px;
+  font-weight: 700;
+  color: rgba(11,18,32,.72);
+  user-select:none;
 }
 .tag.active{
-  border-color: rgba(191,233,255,0.46);
-  background: rgba(191,233,255,0.16);
+  background: rgba(90,174,230,.16);
+  border-color: rgba(90,174,230,.26);
+  color: rgba(11,42,58,.95);
 }
 
+/* category color tokens */
+.tag-it-sight{ background: rgba(90,174,230,.18); border-color: rgba(90,174,230,.22); color: rgba(11,42,58,.92); }
+.tag-it-food{ background: rgba(215,155,75,.18); border-color: rgba(215,155,75,.22); color: rgba(69,42,10,.86); }
+.tag-it-traffic{ background: rgba(91,107,122,.14); border-color: rgba(91,107,122,.18); color: rgba(11,18,32,.74); }
+.tag-it-stay{ background: rgba(74,163,119,.16); border-color: rgba(74,163,119,.20); color: rgba(9,46,26,.82); }
+.tag-it-other{ background: rgba(122,120,201,.14); border-color: rgba(122,120,201,.18); color: rgba(29,28,73,.80); }
+
+.tag-exp-food{ background: rgba(215,155,75,.18); border-color: rgba(215,155,75,.22); color: rgba(69,42,10,.86); }
+.tag-exp-stay{ background: rgba(74,163,119,.16); border-color: rgba(74,163,119,.20); color: rgba(9,46,26,.82); }
+.tag-exp-traffic{ background: rgba(90,174,230,.14); border-color: rgba(90,174,230,.18); color: rgba(11,42,58,.88); }
+.tag-exp-ticket{ background: rgba(122,120,201,.14); border-color: rgba(122,120,201,.18); color: rgba(29,28,73,.80); }
+.tag-exp-shop{ background: rgba(200,111,134,.14); border-color: rgba(200,111,134,.18); color: rgba(70,15,30,.78); }
+.tag-exp-other{ background: rgba(91,107,122,.14); border-color: rgba(91,107,122,.18); color: rgba(11,18,32,.74); }
+
+/* --- Pending (offline + outbox) --- */
+.pending-card{
+  border: 2px dashed rgba(215,155,75,.95) !important;
+}
+.pending-badge{
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px dashed rgba(215,155,75,.95);
+  color: rgba(215,155,75,.95);
+  background: rgba(255,255,255,.50);
+  font-weight: 800;
+}
+
+/* --- Links inside editable --- */
+.link-soft{
+  text-decoration: underline;
+  color: rgba(11,42,58,.92);
+  text-underline-offset: 2px;
+}
+
+/* --- Progress bar --- */
 .progress{
-  height:12px;border-radius:999px;
-  background: rgba(255,255,255,0.10);
-  border:1px solid rgba(255,255,255,0.12);
+  width:100%;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(20,35,60,.08);
   overflow:hidden;
 }
 .progress-bar{
-  height:100%;width:0%;
-  background: linear-gradient(90deg, rgba(191,233,255,0.95), rgba(94,234,212,0.90));
+  height:100%;
+  width:0%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(90,174,230,.9), rgba(74,163,119,.9));
 }
 
+/* --- Modals --- */
 .modal{
-  position:fixed; inset:0;
-  background: rgba(0,0,0,0.38);
-  display:flex; align-items:flex-end; justify-content:center;
-  padding:12px; padding-bottom: calc(12px + env(safe-area-inset-bottom));
-  z-index:50;
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(7,12,20,.18);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  display:flex;
+  align-items:flex-end;
+  justify-content:center;
+  padding: 14px 14px calc(14px + var(--safe-bottom));
 }
+.modal.hidden{ display:none !important; }
+
 .modal-sheet{
-  width:100%; max-width:760px;
-  border-radius:22px;
-  border:1px solid rgba(255,255,255,0.16);
-  background: rgba(24, 41, 63, 0.92); /* ✅ 變亮 */
-  backdrop-filter: blur(16px);
+  width: 100%;
+  max-width: 720px;
+  border-radius: 28px;
+  background: rgba(255,255,255,.86);
+  border: 1px solid rgba(20,35,60,.12);
+  box-shadow: 0 18px 60px rgba(20,35,60,.18);
   overflow:hidden;
 }
 .modal-head, .modal-foot{
-  padding:12px 14px;
-  border-bottom:1px solid rgba(255,255,255,0.12);
-  display:flex; align-items:center; justify-content:space-between;
+  padding: 14px 14px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  border-bottom: 1px solid rgba(20,35,60,.08);
 }
-.modal-foot{ border-bottom:none; border-top:1px solid rgba(255,255,255,0.12); gap:10px; }
+.modal-foot{
+  border-bottom: none;
+  border-top: 1px solid rgba(20,35,60,.08);
+}
 .modal-body{
-  padding:12px 14px;
-  max-height:70vh; overflow:auto;
-  -webkit-overflow-scrolling:touch;
+  padding: 14px 14px;
+  max-height: 70vh;
+  overflow:auto;
+  -webkit-overflow-scrolling: touch;
 }
-.hidden{ display:none !important; }
 
-/* ===== Fix: time inputs overlap (iOS) ===== */
-.modal-body .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.time-input { width: 100%; max-width: 100%; }
+/* --- Pull-to-refresh indicator (avoid dynamic island) --- */
+#ptrIndicator{
+  top: var(--safe-top) !important;
+  padding-top: 10px !important;
+}
 
-/* 如果你想「框框縮短一點」讓兩欄看起來更鬆，可用這個： */
-.modal-body .grid > .field { min-width: 0; }
-.time-input { padding-left: 10px; padding-right: 10px; font-size: 14px; }
+/* --- Expenses page: input-only (hide record list section) --- */
+#page-expenses .mt-4{ display:none !important; }
+#page-expenses .pb-24{ padding-bottom: calc(24px + var(--safe-bottom)); }
 
-/* ===== Pending (offline + not uploaded) ===== */
-.pending-card { border: 2px dashed rgba(251,146,60,.95) !important; }
-.pending-badge {
-  padding: 2px 8px;
+/* --- Chips in analysis --- */
+.chip{
+  display:inline-flex;
+  align-items:center;
+  gap: 6px;
+  padding: 8px 10px;
   border-radius: 999px;
-  border: 1px dashed rgba(251,146,60,.95);
-  color: rgba(251,146,60,.95);
+  border: 1px solid rgba(20,35,60,.12);
+  background: rgba(255,255,255,.62);
+  color: rgba(11,18,32,.76);
+  font-size: 12px;
+  font-weight: 750;
 }
-
-/* ===== Link style inside editable ===== */
-.link-soft { text-decoration: underline; color: rgba(191,233,255,0.98); }
+.chip .x{
+  opacity:.6;
+  font-weight:900;
+}
