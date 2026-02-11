@@ -50,19 +50,23 @@ body { -webkit-touch-callout: default; }
 
 /* --- 卡片優化 (邊界增強) --- */
 .glass-card {
-  background: rgba(255, 255, 255, 0.85);
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  background: rgba(255, 255, 255, 0.9); /* 提高不透明度，讓內容更清楚 */
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
   
-  /* 修改：將邊框改為深一點的藍灰色，確保肉眼可見 */
-  border: 1px solid rgba(203, 213, 225, 0.8); /* Tailwind slate-300 */
+  /* --- 關鍵修改：加粗邊框，改成實心淺灰色 --- */
+  border: 2px solid #cbd5e1; /* Slate-300，這是很明顯的灰色線條 */
   
   border-radius: 20px;
-  /* 增加陰影層次感，讓卡片更立體 */
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+  
+  /* --- 關鍵修改：加強陰影，讓卡片浮起來 --- */
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  
   transition: transform 0.2s cubic-bezier(0.25, 0.8, 0.25, 1);
+  margin-bottom: 16px; /* 確保卡片之間有足夠間距 */
 }
-.glass-card:active { transform: scale(0.99); }
+
+.glass-card:active { transform: scale(0.98); }
 
 /* --- 筆記連結優化 --- */
 .note-content {
@@ -144,34 +148,40 @@ body { -webkit-touch-callout: default; }
 }
 
 /* --- Tab Bar --- */
-/* --- 2. 分頁導覽列加強 (修復不知道選到哪一頁) --- */
+/* --- 分頁導覽列容器 --- */
 .tab-bar {
-  background: rgba(255, 255, 255, 0.95);
+  background: rgba(255, 255, 255, 0.8);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  border-bottom: 1px solid rgba(203, 213, 225, 0.8); /* 加深底線 */
-  box-shadow: 0 -4px 20px rgba(0,0,0,0.05); /* 增加一點往上的陰影 */
+  /* 移除底線，改用 padding 撐開空間 */
+  border-bottom: 1px solid rgba(203, 213, 225, 0.5);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+  padding: 10px 16px; /* 增加內距 */
+  display: flex;
+  gap: 8px; /* 按鈕之間的間距 */
 }
 
+/* --- 分頁按鈕 (未選取狀態) --- */
 .tab-btn { 
-  color: #94a3b8; /* 未選取時：淺灰 */
-  transition: all 0.3s ease;
-  font-weight: 600;
+  color: #64748b; /* 深灰色文字 */
+  font-weight: 700;
+  border-radius: 999px; /* 膠囊形狀 */
+  padding: 8px 16px; /* 增加按鈕面積 */
+  transition: all 0.2s ease-out;
+  background-color: transparent; /* 未選取時背景透明 */
 }
+
+/* --- 分頁按鈕 (被選取狀態) - 改為顯眼的藍底白字 --- */
 .tab-active { 
-  color: #0369a1; /* 選取時：深藍 (Sky-700) */
-  background-color: rgba(224, 242, 254, 0.5); /* 增加淡淡的藍色背景 */
-  position: relative; 
+  color: #ffffff !important; /* 強制白字 */
+  background: linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%); /* 藍色漸層背景 */
+  box-shadow: 0 4px 10px rgba(14, 165, 233, 0.3); /* 藍色光暈 */
+  transform: translateY(-1px); /* 微微浮起 */
 }
-/* 選取時底部的藍色橫條 */
+
+/* 移除原本的底部線條設計，因為現在整顆按鈕變色了 */
 .tab-active::after {
-  content: '';
-  position: absolute;
-  bottom: 0; left: 25%; /* 縮短一點，比較優雅 */
-  width: 50%; height: 3px;
-  background: #0284c7;
-  border-radius: 3px 3px 0 0;
-  box-shadow: 0 -2px 6px rgba(2, 132, 199, 0.4);
+  display: none;
 }
 
 /* --- 共用工具 --- */
