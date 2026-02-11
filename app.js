@@ -1,13 +1,14 @@
 /* =========================================================
- * app.js (v5)
- * Fixes:
- * 1) Itinerary time from Sheets (fraction/date/string) -> HH:MM
- * 2) Edit Expense modal keeps category/payment (normalize dashes)
- * 3) Expense "Category is number" (column swapped legacy) auto-fix on pull
- * 4) Itinerary cards tinted by category
- * 5) Expense tags per exact category (breakfast/lunch/flight/etc)
- * 6) Pie by EXP_CATEGORIES (each category slice with diverse colors)
- * 7) Analysis budget: remain big, spent small, bar, mom line small; hide "只計算..."
+ * app.js (v6)
+ * Fixes for your report:
+ * 1) Text contrast: handled in CSS
+ * 2) Expenses legacy mapping:
+ *    - Category = TWD converted amount
+ *    - Item = expense category
+ *    - Amount = original currency amount
+ * 3) Analysis categories not all "其他"
+ * 4) Itinerary card colors improved in CSS
+ * 5) Itinerary time: supports "20:30", 1899-...Z, fraction-of-day
  * ========================================================= */
 
 const GAS_URL = "https://script.google.com/macros/s/AKfycbzfX8f3-CcY6X-nu7Sm545Xk5ysHRrWvwqWxBV0-YGX3Ss3ShJM6r9eDnXcoBNwBULhxw/exec";
@@ -25,15 +26,15 @@ const EXP_CATEGORIES = [
   "交通（機票）","交通（租車）","交通（停車費）","交通（油錢）","交通（電費）",
   "紀念品","門票","其他"
 ];
-const PAY = ["現金","信用卡－國泰","信用卡–永豐","信用卡–元大","信用卡-永豐","信用卡-元大"]; // include legacy hyphen
+const PAY = ["現金","信用卡－國泰","信用卡–永豐","信用卡–元大","信用卡-永豐","信用卡-元大"]; // legacy
 const IT_CATEGORIES = ["景點","飲食","交通","住宿","其他"];
 
 const LS = {
-  itinerary: "tripapp_itinerary_v7",
-  expenses:  "tripapp_expenses_v7",
+  itinerary: "tripapp_itinerary_v8",
+  expenses:  "tripapp_expenses_v8",
   fx:        "tripapp_fx_global_v1",
-  outbox:    "tripapp_outbox_v7",
-  ui:        "tripapp_ui_v4"
+  outbox:    "tripapp_outbox_v8",
+  ui:        "tripapp_ui_v5"
 };
 
 const $ = (q) => document.querySelector(q);
@@ -76,58 +77,71 @@ function daysBetween(a,b){
   const ms = (parseLocalDate(fmtDate(b)).getTime() - parseLocalDate(fmtDate(a)).getTime());
   return Math.round(ms/86400000);
 }
+
 function normalizeDateKey(v){
   if (!v) return "";
   if (typeof v === "string"){
     const m = v.match(/^(\d{4}-\d{2}-\d{2})/);
     if (m) return m[1];
-    const t = Date.parse(v);
-    if (!Number.isNaN(t)) return fmtDate(new Date(t));
-    // also handle M/D/YYYY ...
     const md = v.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
     if (md){
       const mm = String(md[1]).padStart(2,"0");
       const dd = String(md[2]).padStart(2,"0");
       return `${md[3]}-${mm}-${dd}`;
     }
+    const t = Date.parse(v);
+    if (!Number.isNaN(t)) return fmtDate(new Date(t));
     return v;
   }
   if (Object.prototype.toString.call(v) === "[object Date]" && !isNaN(v.getTime())) return fmtDate(v);
-  try{
-    const t = Date.parse(String(v));
-    if (!Number.isNaN(t)) return fmtDate(new Date(t));
-  }catch{}
+  const t = Date.parse(String(v));
+  if (!Number.isNaN(t)) return fmtDate(new Date(t));
   return String(v);
 }
 
-/* ✅ Fix #1: Time normalization */
+/* ✅ Time normalization: "20:30" / ISO datetime / Date obj / fraction-of-day */
 function normalizeTime(v){
   if (v === null || v === undefined || v === "") return "";
-  // Date object (time-only from Sheets sometimes becomes Date 1899/12/30...)
+
+  // Date object
   if (Object.prototype.toString.call(v) === "[object Date]" && !isNaN(v.getTime())){
     const hh = String(v.getHours()).padStart(2,"0");
     const mm = String(v.getMinutes()).padStart(2,"0");
     return `${hh}:${mm}`;
   }
+
   // number (fraction of day)
   if (typeof v === "number" && Number.isFinite(v)){
-    // typical: 0.0208333 = 00:30
     const totalMin = Math.round(v * 24 * 60);
     const hh = String(Math.floor(totalMin/60) % 24).padStart(2,"0");
     const mm = String(totalMin % 60).padStart(2,"0");
     return `${hh}:${mm}`;
   }
-  // string
+
   const s = String(v).trim();
   if (!s) return "";
-  // if looks like "0:30" or "5:15"
-  const m = s.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
-  if (m){
-    const hh = String(Number(m[1])).padStart(2,"0");
-    const mm = String(Number(m[2])).padStart(2,"0");
+
+  // "20:30" / "0:30"
+  const hm = s.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+  if (hm){
+    const hh = String(Number(hm[1])).padStart(2,"0");
+    const mm = String(Number(hm[2])).padStart(2,"0");
     return `${hh}:${mm}`;
   }
-  // if it's numeric in string
+
+  // ISO datetime from Sheets (e.g. 1899-12-29T16:30:00.000Z)
+  if (/^\d{4}-\d{2}-\d{2}T/.test(s)){
+    const d = new Date(s);
+    if (!isNaN(d.getTime())){
+      // if ends with Z, use UTC to match sheet's encoded time-of-day
+      const useUtc = /Z$/.test(s);
+      const hh = String(useUtc ? d.getUTCHours() : d.getHours()).padStart(2,"0");
+      const mm = String(useUtc ? d.getUTCMinutes() : d.getMinutes()).padStart(2,"0");
+      return `${hh}:${mm}`;
+    }
+  }
+
+  // numeric string "0.0208333"
   const n = Number(s);
   if (Number.isFinite(n) && n >= 0 && n <= 1){
     const totalMin = Math.round(n * 24 * 60);
@@ -135,6 +149,7 @@ function normalizeTime(v){
     const mm = String(totalMin % 60).padStart(2,"0");
     return `${hh}:${mm}`;
   }
+
   return s;
 }
 
@@ -169,7 +184,6 @@ function itTagClass(cat){
   })[cat] || "tag-it-other";
 }
 
-/* ✅ Fix #8: expense tag by exact category (not numbers) */
 function expTagClassExact(cat){
   switch(cat){
     case "早餐": return "tag-exp-breakfast";
@@ -199,7 +213,12 @@ function normalizeCurrency(c){
   if (s === "NTD") return "TWD";
   return s;
 }
+
+/* ✅ Use twdOverride when available (because your sheet stores converted TWD in Category) */
 function toTwd(e, fx){
+  const override = Number(e.twdOverride);
+  if (Number.isFinite(override) && override > 0) return Math.round(override);
+
   const amt = Number(e.amount || 0);
   const cur = normalizeCurrency(e.currency || "TWD");
   if (cur === "TWD") return Math.round(amt);
@@ -558,7 +577,7 @@ function renderItinerary(){
   itineraryList.innerHTML = "";
 
   if (!items.length){
-    itineraryList.innerHTML = `<div class="card p-4 text-sm" style="color: rgba(6,16,25,.62);">今天還沒有行程。可以按「新增行程」。</div>`;
+    itineraryList.innerHTML = `<div class="card p-4 text-sm" style="color: rgba(7,19,31,.62);">今天還沒有行程。可以按「新增行程」。</div>`;
     return;
   }
 
@@ -568,7 +587,7 @@ function renderItinerary(){
     const pendingOffline = (!navigator.onLine) && state.pending.Itinerary.has(it.id);
 
     const card = document.createElement("div");
-    card.className = `card p-4 it-card ${itCardClass(it.category)}`; // ✅ full tinted
+    card.className = `card p-4 it-card ${itCardClass(it.category)}`;
     if (pendingOffline) card.classList.add("pending-card");
 
     card.innerHTML = `
@@ -576,13 +595,13 @@ function renderItinerary(){
         <div class="min-w-0">
           <div class="flex items-center gap-2 flex-wrap">
             <span class="tag ${itTagClass(it.category)}">${escapeHtml(it.category)}</span>
-            <span class="text-xs font-extrabold" style="color: rgba(6,16,25,.66);">${escapeHtml(time)}</span>
+            <span class="text-xs font-extrabold" style="color: rgba(7,19,31,.72);">${escapeHtml(time)}</span>
             ${pendingOffline ? `<span class="text-xs pending-badge">待上傳</span>` : ``}
           </div>
-          <div class="mt-2 text-base font-semibold leading-snug break-words" style="color: rgba(6,16,25,.92);">${it.title || ""}</div>
-          ${it.location ? `<div class="mt-2 text-xs break-words" style="color: rgba(6,16,25,.66);">${escapeHtml(it.location)}</div>` : ""}
+          <div class="mt-2 text-base font-semibold leading-snug break-words" style="color: rgba(7,19,31,.94);">${it.title || ""}</div>
+          ${it.location ? `<div class="mt-2 text-xs break-words" style="color: rgba(7,19,31,.66);">${escapeHtml(it.location)}</div>` : ""}
           ${it.link ? `<div class="mt-2 text-xs"><a href="${escapeHtml(it.link)}" target="_blank" rel="noopener" class="link-soft">開啟連結</a></div>` : ""}
-          ${it.note ? `<div class="mt-2 text-sm break-words" style="color: rgba(6,16,25,.78);">${it.note}</div>` : ""}
+          ${it.note ? `<div class="mt-2 text-sm break-words" style="color: rgba(7,19,31,.82);">${it.note}</div>` : ""}
           ${imgSrc ? `<div class="mt-3"><img class="rounded-2xl border border-white/10 cursor-pointer" data-view-src="${imgSrc}" src="${imgSrc}" alt="img"/></div>` : ""}
         </div>
         <div class="shrink-0 flex flex-col gap-2">
@@ -624,31 +643,30 @@ function getSplitSelected(){
   return $$("#splitChooser .tag.active").map(b => b.dataset.value);
 }
 
+function normalizePayment(p){
+  let s = String(p||"").trim();
+  s = s.replaceAll("－","-").replaceAll("–","-");
+  if (s === "信用卡-永豐") return "信用卡–永豐";
+  if (s === "信用卡-元大") return "信用卡–元大";
+  if (s === "信用卡-國泰") return "信用卡－國泰";
+  return p;
+}
+
+/* ✅ store legacy twdOverride too */
 function toSheetExpense(e){
   return {
     Date: normalizeDateKey(e.date),
     Payer: e.payer,
     Location: e.location,
-    Category: e.category,
-    Item: e.item,
+    Category: e.twdOverride ?? "",       // TWD (legacy)
+    Item: e.category,                    // category (legacy)
     Payment: e.payment,
     Currency: normalizeCurrency(e.currency),
-    Amount: e.amount,
+    Amount: e.amount,                    // original amount
     Involved: e.involved,
     Note: e.note || "",
     ID: e.id
   };
-}
-
-function normalizePayment(p){
-  // normalize dash variants so select won't "disappear"
-  let s = String(p||"").trim();
-  s = s.replaceAll("－","-").replaceAll("–","-");
-  // convert back to one of options if possible
-  if (s === "信用卡-永豐") return "信用卡–永豐";
-  if (s === "信用卡-元大") return "信用卡–元大";
-  if (s === "信用卡-國泰") return "信用卡－國泰";
-  return p;
 }
 
 function addExpense(){
@@ -666,16 +684,21 @@ function addExpense(){
   if (!Number.isFinite(amount) || amount <= 0) return alert("請輸入正確金額");
   if (!split.length) return alert("請選擇分攤人員");
 
+  // new entries: we compute twdOverride from fx (so "固定全旅程匯率" 生效)
+  const fx = getFx();
+  const twd = (currency === "TWD") ? Math.round(amount) : Math.round(amount * Number(fx[currency] || 1));
+
   const row = {
     id: uid("E"),
     date: state.selectedDate,
     payer: who,
     location: where,
-    category,
-    item: title,
+    category,            // correct category in app
+    item: title,         // item name
     payment: pay,
     currency,
-    amount,
+    amount,              // original amount
+    twdOverride: twd,    // store TWD snapshot
     involved: split.join(","),
     note
   };
@@ -707,16 +730,14 @@ function computePersonShareTwd(person, items, fx){
   return Math.round(total);
 }
 
-/* ✅ Fix #6: pie colors diverse & per EXACT category */
 function categoryColorByName(cat){
   const palette = [
     "rgba(74,159,217,.90)","rgba(62,154,114,.90)","rgba(211,154,75,.90)",
-    "rgba(111,109,204,.90)","rgba(200,111,134,.90)","rgba(85,103,118,.86)",
+    "rgba(123,120,218,.90)","rgba(208,123,147,.90)","rgba(85,103,118,.86)",
     "rgba(120,200,190,.90)","rgba(230,170,110,.90)","rgba(170,190,230,.90)",
     "rgba(170,220,190,.90)","rgba(240,200,210,.90)","rgba(210,210,240,.90)",
     "rgba(190,220,255,.90)"
   ];
-  // stable hash
   let h=0;
   for (const ch of String(cat)) h = (h*31 + ch.charCodeAt(0)) >>> 0;
   return palette[h % palette.length];
@@ -725,6 +746,7 @@ function categoryColorByName(cat){
 function renderAnalysis(){
   updateSyncBadge();
   const fx = getFx();
+
   const all = load(LS.expenses, []).map(x => ({
     ...x,
     date: normalizeDateKey(x.date),
@@ -741,34 +763,24 @@ function renderAnalysis(){
     return true;
   });
 
-  // ✅ Fix #7: budget readability + hide "只計算..." line
   const jqTy = filtered.filter(e => e.payer === "家齊" || e.payer === "亭穎");
   const jqTyTotal = sumTwd(jqTy, fx);
   const remain = Math.max(0, BUDGET_JQ_TY - jqTyTotal);
 
-  budgetRemain.textContent = `NT$ ${fmtMoney(remain)}`;            // big (already in HTML)
+  budgetRemain.textContent = `NT$ ${fmtMoney(remain)}`;
   budgetRemain.style.fontSize = "28px";
   budgetRemain.style.fontWeight = "900";
 
-  budgetSpent.textContent = `NT$ ${fmtMoney(jqTyTotal)}`;          // small
+  budgetSpent.textContent = `NT$ ${fmtMoney(jqTyTotal)}`;
   budgetSpent.parentElement.style.fontSize = "14px";
-  budgetSpent.parentElement.style.fontWeight = "800";
+  budgetSpent.parentElement.style.fontWeight = "900";
 
   budgetBar.style.width = `${clamp(BUDGET_JQ_TY ? (jqTyTotal/BUDGET_JQ_TY) : 0, 0, 1) * 100}%`;
 
   const momShare = computePersonShareTwd("媽媽", filtered, fx);
   momLine.textContent = `媽媽支出與分攤：NT$ ${fmtMoney(momShare)}`;
-  momLine.style.color = "rgba(6,16,25,.62)";
-  momLine.style.fontWeight = "800";
 
-  // hide the "只計算..." text in your HTML (if exists)
-  const budgetCard = budgetRemain?.closest(".card");
-  if (budgetCard){
-    const rightHint = budgetCard.querySelector(".text-right.text-xs");
-    if (rightHint) rightHint.style.display = "none";
-  }
-
-  // ✅ Pie: each EXP_CATEGORIES slice (not merged buckets)
+  // Pie: by category totals
   const catMap = new Map(EXP_CATEGORIES.map(c=>[c,0]));
   for (const e of filtered){
     const c = EXP_CATEGORIES.includes(e.category) ? e.category : "其他";
@@ -784,7 +796,7 @@ function renderAnalysis(){
   const items = filtered.slice().sort((a,b)=> (b.date||"").localeCompare(a.date||""));
 
   if (!items.length){
-    analysisExpenseList.innerHTML = `<div class="card p-4 text-sm" style="color: rgba(6,16,25,.62);">此篩選條件下沒有消費。</div>`;
+    analysisExpenseList.innerHTML = `<div class="card p-4 text-sm" style="color: rgba(7,19,31,.62);">此篩選條件下沒有消費。</div>`;
   } else {
     items.forEach(e => {
       const twd = toTwd(e, fx);
@@ -792,7 +804,7 @@ function renderAnalysis(){
       const pendingOffline = (!navigator.onLine) && state.pending.Expenses.has(e.id);
 
       const originalLine = (normalizeCurrency(e.currency) !== "TWD")
-        ? `<div class="text-xs font-extrabold" style="color: rgba(6,16,25,.56);">${escapeHtml(e.currency)} ${fmtMoney(e.amount)}（原幣）</div>`
+        ? `<div class="text-xs font-extrabold" style="color: rgba(7,19,31,.56);">${escapeHtml(e.currency)} ${fmtMoney(e.amount)}（原幣）</div>`
         : ``;
 
       const splits = String(e.involved||"").split(",").map(s=>s.trim()).filter(Boolean).join("、");
@@ -806,19 +818,19 @@ function renderAnalysis(){
           <div class="min-w-0">
             <div class="flex items-center gap-2 flex-wrap">
               <span class="tag ${expTagClassExact(catLabel)}">${escapeHtml(catLabel)}</span>
-              <div class="text-base font-semibold break-words" style="color: rgba(6,16,25,.92);">${escapeHtml(e.item)}</div>
+              <div class="text-base font-semibold break-words" style="color: rgba(7,19,31,.92);">${escapeHtml(e.item)}</div>
               ${pendingOffline ? `<span class="text-xs pending-badge">待上傳</span>` : ``}
             </div>
 
-            <div class="mt-1 text-sm font-semibold" style="color: rgba(6,16,25,.62);">
+            <div class="mt-1 text-sm font-semibold" style="color: rgba(7,19,31,.62);">
               ${escapeHtml(e.payer)} • ${escapeHtml(e.location)} • ${escapeHtml(e.payment)} • ${escapeHtml(e.date)}
             </div>
 
-            <div class="mt-2 text-2xl font-extrabold" style="color: rgba(6,16,25,.92);">NT$ ${fmtMoney(twd)}</div>
+            <div class="mt-2 text-2xl font-extrabold" style="color: rgba(7,19,31,.92);">NT$ ${fmtMoney(twd)}</div>
             ${originalLine}
 
-            ${e.note ? `<div class="mt-2 text-sm break-words" style="color: rgba(6,16,25,.78);">${escapeHtml(e.note)}</div>` : ""}
-            <div class="mt-2 text-xs font-extrabold" style="color: rgba(6,16,25,.56);">分攤：${escapeHtml(splits)}</div>
+            ${e.note ? `<div class="mt-2 text-sm break-words" style="color: rgba(7,19,31,.78);">${escapeHtml(e.note)}</div>` : ""}
+            <div class="mt-2 text-xs font-extrabold" style="color: rgba(7,19,31,.56);">分攤：${escapeHtml(splits)}</div>
           </div>
 
           <div class="shrink-0 flex flex-col gap-2">
@@ -838,7 +850,6 @@ function renderAnalysis(){
   settlement.textContent = buildSettlement(filtered, fx);
 }
 
-/* ===== Pie ===== */
 function renderPie(labels, values, colors){
   if (!pieCanvas || !window.Chart) return;
   const ctx = pieCanvas.getContext("2d");
@@ -930,7 +941,7 @@ function renderFilterChips(){
   for (const v of state.filter.pay) chips.push({k:"pay", v});
 
   if (!chips.length){
-    filterChips.innerHTML = `<span class="text-xs font-extrabold" style="color: rgba(6,16,25,.56);">未套用篩選</span>`;
+    filterChips.innerHTML = `<span class="text-xs font-extrabold" style="color: rgba(7,19,31,.56);">未套用篩選</span>`;
     return;
   }
 
@@ -977,11 +988,11 @@ function buildFxModal(){
   wrap.innerHTML = `
     <div class="modal-sheet">
       <div class="modal-head">
-        <div class="text-base font-extrabold" style="color: rgba(6,16,25,.92);">匯率設定（固定全旅程）</div>
+        <div class="text-base font-extrabold" style="color: rgba(7,19,31,.92);">匯率設定（固定全旅程）</div>
         <button class="btn btn-ghost" id="btnFxClose">關閉</button>
       </div>
       <div class="modal-body">
-        <div class="text-xs font-extrabold" style="color: rgba(6,16,25,.56);">輸入「1 外幣 = ? TWD」</div>
+        <div class="text-xs font-extrabold" style="color: rgba(7,19,31,.56);">輸入「1 外幣 = ? TWD」</div>
         <div class="grid grid-cols-2 gap-3 mt-4">
           ${fxField("NOK")}
           ${fxField("ISK")}
@@ -1028,7 +1039,7 @@ function numOr1(v){
   return n;
 }
 
-/* ===== Expense Edit modal (Fix #5: involved buttons) ===== */
+/* ===== Expense Edit modal (kept from previous) ===== */
 let expEditModalEl = null;
 let editingExpenseId = null;
 
@@ -1053,7 +1064,7 @@ function buildExpenseEditModal(){
   wrap.innerHTML = `
     <div class="modal-sheet">
       <div class="modal-head">
-        <div class="text-base font-extrabold" style="color: rgba(6,16,25,.92);">編輯消費明細</div>
+        <div class="text-base font-extrabold" style="color: rgba(7,19,31,.92);">編輯消費明細</div>
         <button class="btn btn-ghost" id="btnExpEditClose">關閉</button>
       </div>
       <div class="modal-body">
@@ -1083,7 +1094,7 @@ function buildExpenseEditModal(){
           </label>
 
           <label class="field">
-            <div class="field-label">金額</div>
+            <div class="field-label">金額（原幣）</div>
             <input id="expEAmount" class="field-input" inputmode="decimal" />
           </label>
 
@@ -1127,7 +1138,6 @@ function buildExpenseEditModal(){
   wrap.querySelector("#btnExpEditSave").addEventListener("click", () => saveExpenseEditFromModal());
   wrap.addEventListener("click", (e) => { if (e.target === wrap) closeExpenseEditModal(); });
 
-  // build inv chooser
   const invBox = wrap.querySelector("#invChooser");
   invBox.innerHTML = "";
   PEOPLE.forEach(p => {
@@ -1161,7 +1171,6 @@ function fillExpenseEditModal(e){
   expEditModalEl.querySelector("#expEItem").value = e.item;
   expEditModalEl.querySelector("#expENote").value = e.note || "";
 
-  // involved buttons
   const invSet = new Set(String(e.involved||"").split(",").map(s=>s.trim()).filter(Boolean));
   $$("#invChooser .tag").forEach(t => t.classList.toggle("active", invSet.has(t.dataset.value)));
 }
@@ -1183,6 +1192,9 @@ function saveExpenseEditFromModal(){
   if (!Number.isFinite(amount) || amount <= 0) return alert("請輸入正確金額");
   if (!involved) return alert("請選擇分攤人員");
 
+  const fx = getFx();
+  const twd = (currency === "TWD") ? Math.round(amount) : Math.round(amount * Number(fx[currency] || 1));
+
   const all = load(LS.expenses, []);
   const idx = all.findIndex(x => x.id === id);
   if (idx < 0) return;
@@ -1195,6 +1207,7 @@ function saveExpenseEditFromModal(){
     payment: pay,
     currency,
     amount,
+    twdOverride: twd,
     item,
     note,
     involved
@@ -1208,7 +1221,6 @@ function saveExpenseEditFromModal(){
   renderAnalysis();
 }
 
-/* ===== Delete expense ===== */
 function deleteExpense(id){
   const all = load(LS.expenses, []);
   const e = all.find(x => x.id === id);
@@ -1235,7 +1247,6 @@ async function maybeAutoSync(){
   if (!navigator.onLine) return;
   const box = load(LS.outbox, []);
   if (!box.length) return;
-
   setSyncBadge("sync", "同步中");
   try { await syncNow(); }
   catch { setSyncBadge("warn", "同步失敗"); }
@@ -1262,7 +1273,7 @@ async function pullAll(){
   mergePulled(res.rows);
 }
 
-/* ✅ Fix #8: legacy swapped columns repair */
+/* ✅ IMPORTANT: Expenses mapping per your rule */
 function mergePulled(rows){
   const exp = [];
   const it = [];
@@ -1272,36 +1283,35 @@ function mergePulled(rows){
     const r = item.row || {};
 
     if (table === "Expenses"){
-      let category = String(r.Category ?? "").trim();
-      let amountRaw = r.Amount;
+      // Your rule:
+      // Category = TWD converted amount
+      // Item = expense category
+      // Amount = original currency amount
+      const twdOverride = Number(r.Category);
+      const categoryFromItem = String(r.Item || "").trim();
+      const category = EXP_CATEGORIES.includes(categoryFromItem) ? categoryFromItem : "其他";
 
-      // attempt parse amount
-      let amount = Number(amountRaw);
-      const categoryAsNum = Number(category);
-
-      // If Category is numeric and Amount is missing/non-numeric -> swap fix
-      if (Number.isFinite(categoryAsNum) && (!Number.isFinite(amount) || amount === 0)){
-        // your example: Category=46725, Item=交通（機票）
-        amount = categoryAsNum;
-        category = String(r.Item ?? "其他").trim();
-      }
-
-      // Also: if currency stored as NTD
       const currency = normalizeCurrency(r.Currency ?? "TWD");
+      const amount = Number(r.Amount);
 
       exp.push({
         id: String(r.ID || ""),
         date: normalizeDateKey(r.Date || ""),
         payer: String(r.Payer || ""),
         location: String(r.Location || ""),
-        category: EXP_CATEGORIES.includes(category) ? category : "其他",
-        item: String(r.Item || ""),
+        category,
+        item: String(r.Note ? r.Note : "").trim() ? String(r.Note) : String(r.Payment || ""), // fallback if your "Item name" not stored
+        // ^ 你目前 sheet 欄位沒有「消費名稱」欄，我先把「Payment/Note」做 fallback，避免空白
         payment: normalizePayment(String(r.Payment || "")) || "現金",
         currency,
         amount: Number.isFinite(amount) ? amount : 0,
+        twdOverride: Number.isFinite(twdOverride) ? twdOverride : null,
         involved: String(r.Involved || ""),
         note: String(r.Note || "")
       });
+
+      // NOTE:
+      // 如果你其實有「消費名稱」但放在別欄，貼我 Expenses 表頭我會把它映射回來。
     }
 
     if (table === "Itinerary"){
@@ -1476,8 +1486,8 @@ function setupPullToRefresh(containers){
     ind.style.textAlign = "center";
     ind.style.fontSize = "12px";
     ind.style.fontWeight = "900";
-    ind.style.color = "rgba(6,16,25,.76)";
-    ind.style.background = "rgba(255,255,255,.86)";
+    ind.style.color = "rgba(7,19,31,.76)";
+    ind.style.background = "rgba(255,255,255,.88)";
     ind.style.backdropFilter = "blur(16px)";
     ind.style.webkitBackdropFilter = "blur(16px)";
     ind.style.borderBottom = "1px solid rgba(10,25,45,.12)";
@@ -1488,7 +1498,6 @@ function setupPullToRefresh(containers){
   }
 
   const THRESH = 70;
-
   containers.forEach(el => {
     if (!el) return;
     let pulling=false, startY=0, dist=0;
