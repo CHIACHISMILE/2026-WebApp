@@ -30,30 +30,25 @@
     <span v-if="pullDistance > 20">{{ refreshText }}</span>
   </div>
 
-  <div class="px-6 pb-4 rounded-b-[2rem] shadow-sm swipe-protected relative z-20 bg-white/80 backdrop-blur-xl border-b border-slate-200"
+  <div class="px-6 pb-4 rounded-b-[2rem] shadow-sm swipe-protected relative z-20 bg-white/60 backdrop-blur-xl border-b border-[#E2E8F0]"
        style="padding-top: max(20px, env(safe-area-inset-top) + 12px);">
     <div class="flex justify-between items-center">
-      <h1 class="text-xl font-black tracking-tight text-slate-800">2026 挪威冰島</h1>
+      <h1 class="text-xl font-bold tracking-tight text-[#334155]">2026 挪威冰島</h1>
       <div class="text-right">
-        <button v-if="isSyncing" class="bg-emerald-500 text-white px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1 mb-1 ml-auto animate-pulse">
-           <span class="w-1.5 h-1.5 bg-white rounded-full animate-ping"></span> Syncing
-        </button>
-        <button v-else-if="syncQueue.length > 0" @click="confirmClearSync" class="bg-amber-400 text-white px-3 py-1 rounded-full text-xs font-bold animate-pulse flex items-center gap-1 mb-1 ml-auto">
-          待上傳 ({{ syncQueue.length }})
-        </button>
-        <div class="text-lg font-black text-slate-700 leading-none tracking-wide font-mono mt-1">{{ todayDate }}</div>
-        <div class="text-[10px] text-slate-500 font-bold opacity-100 mt-1 uppercase tracking-[0.2em]">{{ todayWeekday }}</div>
+        <div class="text-lg font-bold text-[#334155] leading-none tracking-wide font-mono mt-1">{{ todayDate }}</div>
+        <div class="text-[10px] text-[#64748B] font-bold opacity-100 mt-1 uppercase tracking-[0.2em]">{{ todayWeekday }}</div>
       </div>
     </div>
     <div class="flex justify-between items-center mt-4">
-      <div class="glass-input px-3 py-1.5 rounded-full text-[10px] font-bold text-slate-500 tracking-wide">AUG 30 - SEP 26</div>
+       <div class="glass-input px-3 py-1.5 rounded-full text-[10px] font-bold text-[#64748B] tracking-wide border border-[#E2E8F0]">AUG 30 - SEP 26</div>
       <div class="flex gap-2">
-        <span v-if="!isOnline" class="bg-slate-500 text-white px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1">離線</span>
-        <span v-if="tripStatus" class="bg-blue-600 text-white px-4 py-1 rounded-full text-xs font-bold tracking-wide shadow-sm">{{ tripStatus }}</span>
+        <span v-if="!isOnline" class="bg-slate-400 text-white px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1">離線</span>
+        <span v-if="tripStatus" class="bg-[#89A7B1] text-white px-4 py-1 rounded-full text-xs font-bold tracking-wide shadow-sm border border-[#6D8A94]">{{ tripStatus }}</span>
       </div>
     </div>
   </div>
 
+  
   <div class="flex tab-bar z-10 text-sm font-bold swipe-protected flex-shrink-0">
     <button @click="tab='itinerary'" :class="['flex-1 p-4 tab-btn', tab==='itinerary'?'tab-active':'']">行程</button>
     <button @click="tab='expense'" :class="['flex-1 p-4 tab-btn', tab==='expense'?'tab-active':'']">記帳</button>
@@ -68,8 +63,8 @@
           <button v-for="d in tripDates" :key="d.date" :id="'date-btn-' + d.date" @click="selectDate(d.date)"
                   :class="[
                     'px-4 py-2.5 rounded-2xl text-xs mr-2 border transition-all duration-300 font-bold shadow-sm',
-                    selDate===d.date ? 'bg-slate-700 text-white border-slate-700 scale-105'
-                                     : 'glass-input text-slate-400 border-transparent hover:bg-white'
+                    selDate===d.date ? 'bg-[#334155] text-white border-[#334155] scale-105 shadow-md' /* 選中狀態改為深灰藍，對比冰川藍 */
+                                     : 'glass-input text-[#94A3B8] border-transparent hover:bg-white'
                   ]">
             {{ d.short }}
           </button>
@@ -92,19 +87,19 @@
             <div :class="['absolute left-0 top-0 bottom-0 w-1.5 z-10', getCategoryColor(evt.category)]"></div>
 
             <div class="w-16 flex flex-col justify-center items-center p-2 border-r border-slate-100 flex-shrink-0">
-              <div class="font-black text-sm text-slate-700">{{ evt.startTime }}</div>
-              <div v-if="evt.endTime" class="text-[10px] text-slate-400 mt-1 font-medium">{{ evt.endTime }}</div>
-              <div class="mt-2 text-[10px] font-bold px-1.5 py-0.5 rounded text-slate-500 bg-slate-50 border border-slate-200 tracking-wider">
+              <div class="font-bold text-sm text-[#334155]">{{ evt.startTime }}</div>
+              <div v-if="evt.endTime" class="text-[10px] text-[#94A3B8] mt-1 font-medium">{{ evt.endTime }}</div>
+              <div class="mt-2 text-[10px] font-bold px-1.5 py-0.5 rounded text-[#64748B] bg-[#F1F5F9] border border-[#E2E8F0] tracking-wider">
                 {{ evt.category }}
               </div>
             </div>
 
             <div class="flex-1 p-4 relative min-w-0">
               <div class="flex justify-between items-start">
-                <span v-if="!evt.link" class="font-bold text-base text-slate-800 leading-tight truncate pr-2">
+                <span v-if="!evt.link" class="font-bold text-base text-[#334155] leading-tight truncate pr-2">
                   {{ evt.title }}
                 </span>
-                <a v-else :href="evt.link" target="_blank" class="title-link text-base leading-tight truncate pr-2 swipe-protected">
+                <a v-else :href="evt.link" target="_blank" class="title-link text-base leading-tight truncate pr-2 swipe-protected text-[#334155]">
                   {{ evt.title }}
                 </a>
               </div>
@@ -169,7 +164,7 @@
           <button @click="openRateModal" class="text-xs text-slate-500 bg-white/50 border border-white px-4 py-2 rounded-full flex items-center shadow-sm backdrop-blur-sm font-bold">匯率設定</button>
         </div>
 
-        <div class="bg-[#5B75A9] text-white rounded-3xl p-6 shadow-xl mb-6 relative overflow-hidden ring-1 ring-white/20">
+        <div class="bg-gradient-to-br from-[#89A7B1] to-[#6D8A94] text-white rounded-3xl p-6 shadow-xl mb-6 relative overflow-hidden ring-1 ring-white/20 border border-[#5A7B85]">
           <div class="border-b border-white/10 pb-3 mb-3 flex justify-between items-center relative z-10">
             <div class="text-xs font-medium opacity-80 tracking-widest uppercase">家齊+亭穎 預算</div>
             <div class="font-bold text-lg font-mono tracking-wider opacity-90">500,000</div>
