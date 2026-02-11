@@ -1,12 +1,12 @@
 /* =========================================================
- * Travel Web App (Frontend) - Full app.js
+ * Travel Web App (Frontend) - app.js (matched to your index.html)
  * - Sync/Pull with GAS
  * - Offline outbox
- * - Pending highlight (orange dashed) when offline edits exist
- * - Pull-to-refresh on each page content area
+ * - Pending highlight (orange dashed) ONLY when offline + not uploaded
+ * - Pull-to-refresh (page container)
  * - Analysis: pie + list + settlement
- * - Filter modal: multi-select chips
- * - Image viewer: pan/zoom + pinch
+ * - Filter modal: data-filter-group="who|where|category|pay"
+ * - Image viewer: pan/zoom + pinch + swipe-down close
  * ========================================================= */
 
 // ====================== CONFIG ======================
@@ -14,14 +14,15 @@ const GAS_URL = "https://script.google.com/macros/s/AKfycbzfX8f3-CcY6X-nu7Sm545X
 const DRIVE_FOLDER_ID = "10ogmnlqLreB_PzSwyuQGtKzO759NVF3M";
 
 const TRIP_NAME = "2026冰島挪威之旅";
-const TRIP_RANGE_TEXT = "2026/08/30-09/26";
+const TRIP_RANGE_TEXT = "2026/08/30–09/26";
 const TRIP_START = "2026-08-30";
 const TRIP_END = "2026-09-26";
 
 const PEOPLE = ["家齊", "亭穎", "媽媽"];
 const WHERE = ["臺灣", "挪威", "冰島", "杜拜", "英國"];
 const EXP_CATEGORIES = [
-  "早餐","午餐","晚餐","零食","住宿",
+  "早餐","午餐","晚餐","零食",
+  "住宿",
   "交通（機票）","交通（租車）","交通（停車費）","交通（油錢）","交通（電費）",
   "紀念品","門票","其他"
 ];
@@ -29,13 +30,11 @@ const PAY = ["現金","信用卡－國泰","信用卡–永豐","信用卡–元
 const CURRENCIES = ["TWD","NOK","ISK","EUR","GBP","AED"];
 
 const IT_CATEGORIES = ["景點","飲食","交通","住宿","其他"];
-
-// 你要的：主題色改淺一些（主要靠 CSS，這裡提供 category 淺色底）
 const IT_CAT_COLORS = {
-  "景點": "rgba(191,233,255,0.18)",
-  "飲食": "rgba(94,234,212,0.14)",
+  "景點": "rgba(191,233,255,0.20)",
+  "飲食": "rgba(94,234,212,0.16)",
   "交通": "rgba(255,255,255,0.10)",
-  "住宿": "rgba(217,243,255,0.12)",
+  "住宿": "rgba(217,243,255,0.14)",
   "其他": "rgba(255,255,255,0.08)"
 };
 
@@ -43,10 +42,10 @@ const BUDGET_JQ_TY = 500000; // NTD
 
 // ====================== STORAGE KEYS ======================
 const LS = {
-  itinerary: "tripapp_itinerary_v3",
-  expenses: "tripapp_expenses_v3",
+  itinerary: "tripapp_itinerary_v4",
+  expenses: "tripapp_expenses_v4",
   fx: "tripapp_fx_v1",
-  outbox: "tripapp_outbox_v3",
+  outbox: "tripapp_outbox_v4",
   ui: "tripapp_ui_v1"
 };
 
@@ -74,7 +73,6 @@ function escapeHtml_(s){
     .replaceAll('"',"&quot;")
     .replaceAll("'","&#039;");
 }
-
 function fmtMoney_(n){ return Number(n||0).toLocaleString("zh-Hant-TW"); }
 
 function parseLocalDate(yyyy_mm_dd) {
@@ -94,10 +92,8 @@ function daysBetween(a,b) {
 }
 function clamp(n, min, max){ return Math.max(min, Math.min(max, n)); }
 
-// ====================== DOM REFS (must exist in HTML) ======================
+// ====================== DOM REFS (matched to your HTML) ======================
 // Header
-const elTitle = $("#appTitle");
-const elSubtitle = $("#appSubtitle");
 const elTripDay = $("#tripDayLabel");
 const elToday = $("#todayLabel");
 const elSync = $("#syncStatus");
@@ -150,6 +146,7 @@ const btnAddExpense = $("#btnAddExpense");
 const btnSplitAll = $("#btnSplitAll");
 const splitChooser = $("#splitChooser");
 const expenseList = $("#expenseList");
+const btnExpFilterQuick = $("#btnExpFilterQuick");
 
 // Analysis
 const btnFx = $("#btnFx");
@@ -161,17 +158,17 @@ const budgetBar = $("#budgetBar");
 const pieCanvas = $("#pie");
 const analysisExpenseList = $("#analysisExpenseList");
 const settlement = $("#settlement");
+const filterChips = $("#filterChips");
 
 // Filter modal
 const modalFilter = $("#modalFilter");
 const btnCloseFilter = $("#btnCloseFilter");
 const btnClearFilter = $("#btnClearFilter");
 const btnApplyFilter = $("#btnApplyFilter");
-const filterChips = $("#filterChips");
-const filterWhoBox = $("#filterWhoBox");
-const filterWhereBox = $("#filterWhereBox");
-const filterCategoryBox = $("#filterCategoryBox");
-const filterPayBox = $("#filterPayBox");
+const filterWhoBox = $('[data-filter-group="who"]');
+const filterWhereBox = $('[data-filter-group="where"]');
+const filterCategoryBox = $('[data-filter-group="category"]');
+const filterPayBox = $('[data-filter-group="pay"]');
 
 // Viewer
 const modalViewer = $("#modalViewer");
@@ -179,11 +176,6 @@ const btnCloseViewer = $("#btnCloseViewer");
 const btnResetViewer = $("#btnResetViewer");
 const viewerStage = $("#viewerStage");
 const viewerImg = $("#viewerImg");
-
-// Containers for pull-to-refresh (choose any scrollable content wrapper)
-const scrollIt = $("#scroll-itinerary") || pageIt;
-const scrollEx = $("#scroll-expenses") || pageEx;
-const scrollAn = $("#scroll-analysis") || pageAn;
 
 // ====================== STATE ======================
 const tripStartD = parseLocalDate(TRIP_START);
@@ -195,7 +187,7 @@ let state = {
   tab: "itinerary",
   selectedDate: fmtDate(tripStartD),
 
-  // itinerary modal draft
+  // itinerary draft
   itDraftCat: IT_CATEGORIES[0],
   itDraftImageDataUrl: "",
   itDraftDriveFileId: "",
@@ -215,23 +207,15 @@ let state = {
   },
 
   // viewer
-  viewer: {
-    scale: 1,
-    tx: 0,
-    ty: 0
-  },
+  viewer: { scale: 1, tx: 0, ty: 0 },
 
-  // computed pending ids
-  pending: {
-    Expenses: new Set(),
-    Itinerary: new Set()
-  },
+  // pending ids from outbox
+  pending: { Expenses: new Set(), Itinerary: new Set() },
 
   pieChart: null
 };
 
 // ====================== INIT ======================
-registerSW_();
 hydrateUI_();
 renderHeader_();
 buildDateStrip_();
@@ -240,54 +224,41 @@ buildSplitChooser_();
 buildFilterModal_();
 attachEvents_();
 setupEdgeGestures_();
-setupPullToRefresh_([scrollIt, scrollEx, scrollAn]);
+setupPullToRefresh_([pageIt, pageEx, pageAn]);
 setupViewer_();
 updateSyncBadge_();
 renderAll_();
 
 if (navigator.onLine) {
-  pullAll_().then(() => renderAll_()).catch(()=>{});
+  pullAll_().then(renderAll_).catch(()=>{});
 }
 
 window.addEventListener("online", () => { updateSyncBadge_(); maybeAutoSync_(); });
 window.addEventListener("offline", () => { updateSyncBadge_(); renderAll_(); });
 setInterval(renderHeader_, 60*1000);
 
-function registerSW_(){
-  if ("serviceWorker" in navigator) navigator.serviceWorker.register("./sw.js").catch(()=>{});
+// ====================== HEADER ======================
+function renderHeader_(){
+  const now = new Date();
+  if (elToday) elToday.textContent = `${now.getMonth()+1}/${now.getDate()}（${weekdayZh(now)}）`;
+
+  const todayLocal = parseLocalDate(fmtDate(now));
+  if (todayLocal < tripStartD) {
+    if (elTripDay) elTripDay.textContent = `倒數 ${daysBetween(todayLocal, tripStartD)} 日`;
+  } else if (todayLocal > tripEndD) {
+    if (elTripDay) elTripDay.textContent = `旅行已結束`;
+  } else {
+    if (elTripDay) elTripDay.textContent = `第 ${tripDayIndexFor(todayLocal)} 日`;
+  }
 }
 
-function hydrateUI_(){
-  // Header texts
-  if (elTitle) elTitle.textContent = TRIP_NAME;
-  if (elSubtitle) elSubtitle.textContent = TRIP_RANGE_TEXT;
-
-  // Selects (if HTML not pre-filled)
-  fillSelect_(expWho, PEOPLE);
-  fillSelect_(expWhere, WHERE);
-  fillSelect_(expCategory, EXP_CATEGORIES);
-  fillSelect_(expPay, PAY);
-  fillSelect_(expCurrency, CURRENCIES);
-
-  // Defaults
-  expCurrency.value = "TWD";
-  expWho.value = PEOPLE[0];
-}
-
-function fillSelect_(selectEl, items){
-  if (!selectEl) return;
-  if (selectEl.options && selectEl.options.length > 0) return; // assume prefilled
-  selectEl.innerHTML = items.map(v => `<option value="${escapeHtml_(v)}">${escapeHtml_(v)}</option>`).join("");
-}
-
-// ====================== SYNC BADGE ======================
+// ====================== SYNC BADGE (rules you requested) ======================
 function setSyncBadge_(mode, text){
-  // mode: ok | wait | sync | offline
   const dotClass = {
     ok: "dot-ok",
-    wait: "dot-wait",
     sync: "dot-sync",
-    offline: "dot-offline"
+    offline: "dot-offline",
+    warn: "dot-wait"
   }[mode] || "dot-ok";
   if (!elSync) return;
   elSync.innerHTML = `<span class="dot ${dotClass}"></span><span class="text-sm">${escapeHtml_(text)}</span>`;
@@ -314,32 +285,25 @@ function computePendingFromOutbox_(){
 function updateSyncBadge_(){
   computePendingFromOutbox_();
   const box = load(LS.outbox, []);
-  const pending = box.length > 0;
+  const hasPending = box.length > 0;
 
   if (!navigator.onLine) {
-    // 你要的：離線且有未上傳才顯示 待上傳
-    if (pending) setSyncBadge_("wait", "待上傳");
+    // ✅ only offline shows 待上傳
+    if (hasPending) setSyncBadge_("warn", "待上傳");
     else setSyncBadge_("offline", "離線");
     return;
   }
 
-  if (pending) setSyncBadge_("wait", "待上傳");
-  else setSyncBadge_("ok", "已同步");
+  // ✅ online never shows 待上傳（你要求的）
+  setSyncBadge_("ok", "已同步");
 }
 
-// ====================== HEADER ======================
-function renderHeader_(){
-  const now = new Date();
-  if (elToday) elToday.textContent = `${now.getMonth()+1}/${now.getDate()}（${weekdayZh(now)}）`;
-
-  const todayLocal = parseLocalDate(fmtDate(now));
-  if (todayLocal < tripStartD) {
-    if (elTripDay) elTripDay.textContent = `倒數 ${daysBetween(todayLocal, tripStartD)} 日`;
-  } else if (todayLocal > tripEndD) {
-    if (elTripDay) elTripDay.textContent = `旅行已結束`;
-  } else {
-    if (elTripDay) elTripDay.textContent = `第 ${tripDayIndexFor(todayLocal)} 日`;
-  }
+// ====================== UI HYDRATE ======================
+function hydrateUI_(){
+  // keep existing <select> options from HTML; no need to fill.
+  // defaults
+  if (expCurrency) expCurrency.value = "TWD";
+  if (expWho && !expWho.value) expWho.value = PEOPLE[0];
 }
 
 // ====================== DATE STRIP ======================
@@ -374,7 +338,7 @@ function setSelectedDate_(yyyy_mm_dd, scrollIntoView){
   renderItinerary_();
 }
 
-// ====================== TAB/PAGE ======================
+// ====================== TAB ======================
 function setTab_(tab){
   state.tab = tab;
   tabButtons.forEach(b => b.classList.toggle("active", b.dataset.tab === tab));
@@ -405,9 +369,6 @@ function buildItCatChooser_(){
     if (idx === 0) b.classList.add("active");
   });
   state.itDraftCat = IT_CATEGORIES[0];
-
-  // 你提過「開始/結束時間框框會重疊」：這通常是 CSS；但前端也可以避免輸入過長
-  // 若你 HTML 是兩個 input 並排，用 CSS 調整寬度最準（你已說要縮短框，建議在 CSS：.time-input{width: 44%}）
 }
 
 function openItModal_(editId=null){
@@ -490,22 +451,22 @@ function saveItinerary_(){
     imageDataUrl
   };
 
-  let saved = null;
+  let savedRow = null;
   if (!state.editingItId) {
-    saved = { id: uid("IT"), ...base };
-    all.push(saved);
+    savedRow = { id: uid("IT"), ...base };
+    all.push(savedRow);
   } else {
     const idx = all.findIndex(x => x.id === state.editingItId);
     if (idx >= 0) {
       all[idx] = { ...all[idx], ...base };
-      saved = all[idx];
+      savedRow = all[idx];
     }
   }
 
   save(LS.itinerary, all);
 
-  if (saved) {
-    queueOutbox_({ op: "upsert", table: "Itinerary", row: toSheetItinerary_(saved) });
+  if (savedRow) {
+    queueOutbox_({ op: "upsert", table: "Itinerary", row: toSheetItinerary_(savedRow) });
     maybeAutoSync_();
   }
 
@@ -518,6 +479,7 @@ function deleteItinerary_(id){
   const all = load(LS.itinerary, []);
   const idx = all.findIndex(x => x.id === id);
   if (idx < 0) return;
+
   all.splice(idx, 1);
   save(LS.itinerary, all);
 
@@ -547,11 +509,11 @@ function renderItinerary_(){
     const time = (it.start || it.end) ? `${it.start||""}–${it.end||""}` : "";
     const imgSrc = it.image || it.imageDataUrl || "";
 
-    const isPending = (!navigator.onLine) && state.pending.Itinerary.has(it.id);
+    const isPendingOffline = (!navigator.onLine) && state.pending.Itinerary.has(it.id);
 
     const card = document.createElement("div");
     card.className = "card p-4";
-    if (isPending) card.classList.add("pending-card"); // ✅ 橘色虛線（靠 CSS）
+    if (isPendingOffline) card.classList.add("pending-card");
 
     card.innerHTML = `
       <div class="flex items-start justify-between gap-3">
@@ -559,7 +521,7 @@ function renderItinerary_(){
           <div class="flex items-center gap-2">
             <span class="tag" style="background:${catBg}; border-color: rgba(255,255,255,0.16);">${escapeHtml_(it.category)}</span>
             <span class="text-xs text-slate-300/80">${escapeHtml_(time)}</span>
-            ${isPending ? `<span class="text-xs pending-badge">待上傳</span>` : ``}
+            ${isPendingOffline ? `<span class="text-xs pending-badge">待上傳</span>` : ``}
           </div>
           <div class="mt-2 text-base font-semibold leading-snug break-words">${it.title || ""}</div>
           ${it.location ? `<div class="mt-2 text-xs text-slate-200/80 break-words">${escapeHtml_(it.location)}</div>` : ""}
@@ -653,7 +615,7 @@ function addExpense_(){
     payment: pay,
     currency,
     amount,
-    involved: split.join(","), // ✅ 逗號
+    involved: split.join(","), // ✅ comma
     note
   };
 
@@ -692,6 +654,7 @@ function editExpense_(id){
 
   const splits = String(e.involved||"").split(",").map(s=>s.trim()).filter(Boolean);
   $$("#splitChooser .tag").forEach(b => b.classList.toggle("active", splits.includes(b.dataset.value)));
+
   if (btnAddExpense) btnAddExpense.textContent = "儲存變更";
 }
 
@@ -727,7 +690,7 @@ function saveExpenseEdit_(){
     payment: pay,
     currency,
     amount,
-    involved: split.join(","),
+    involved: split.join(","), // ✅ comma
     note
   };
   save(LS.expenses, all);
@@ -770,6 +733,7 @@ function renderExpenses_(){
 
   if (!expenseList) return;
   expenseList.innerHTML = "";
+
   if (!items.length) {
     expenseList.innerHTML = `<div class="card p-4 text-sm text-slate-200/80">尚無消費紀錄。</div>`;
     return;
@@ -784,18 +748,18 @@ function renderExpenses_(){
       : `<div class="text-xs text-slate-300/80">${escapeHtml_(e.currency)} ${fmtMoney_(e.amount)}（原幣）</div>`;
 
     const splits = String(e.involved||"").split(",").map(s=>s.trim()).filter(Boolean).join("、");
-    const isPending = (!navigator.onLine) && state.pending.Expenses.has(e.id);
+    const isPendingOffline = (!navigator.onLine) && state.pending.Expenses.has(e.id);
 
     const card = document.createElement("div");
     card.className = "card p-4";
-    if (isPending) card.classList.add("pending-card");
+    if (isPendingOffline) card.classList.add("pending-card");
 
     card.innerHTML = `
       <div class="flex items-start justify-between gap-3">
         <div class="min-w-0">
           <div class="flex items-center gap-2">
             <div class="text-base font-semibold break-words">${escapeHtml_(e.item)}</div>
-            ${isPending ? `<span class="text-xs pending-badge">待上傳</span>` : ``}
+            ${isPendingOffline ? `<span class="text-xs pending-badge">待上傳</span>` : ``}
           </div>
           <div class="mt-1 text-sm text-slate-200/90">${escapeHtml_(e.payer)} • ${escapeHtml_(e.location)} • ${escapeHtml_(e.category)} • ${escapeHtml_(e.payment)}</div>
           <div class="mt-2 text-2xl font-semibold">NT$ ${fmtMoney_(twd)}</div>
@@ -825,7 +789,7 @@ function toSheetExpense_(e){
     Payment: e.payment,
     Currency: e.currency,
     Amount: e.amount,
-    Involved: e.involved, // ✅ 逗號
+    Involved: e.involved, // ✅ comma
     Note: e.note || "",
     ID: e.id
   };
@@ -834,11 +798,9 @@ function toSheetExpense_(e){
 // ====================== ANALYSIS ======================
 function renderAnalysis_(){
   updateSyncBadge_();
-
   const fxMap = getFxMap_();
   const all = load(LS.expenses, []);
 
-  // Apply filters
   const filtered = all.filter(e => {
     const f = state.filter;
     if (f.who.size && !f.who.has(e.payer)) return false;
@@ -848,27 +810,22 @@ function renderAnalysis_(){
     return true;
   });
 
-  // Budget block: only 家齊+亭穎 total (not including mom unless in their name)
   const jqTy = filtered.filter(e => e.payer === "家齊" || e.payer === "亭穎");
-  const mom = filtered.filter(e => e.payer === "媽媽");
+  const momPaid = filtered.filter(e => e.payer === "媽媽");
 
   const jqTyTotal = sumTwd_(jqTy, fxMap);
-  const momTotal = sumTwd_(mom, fxMap);
-
-  // Mom "個人+分攤"：媽媽自己付的 + 任何分攤包含媽媽的 (以 1/人數平均分)
+  const momPaidTotal = sumTwd_(momPaid, fxMap);
   const momShare = computePersonShareTwd_("媽媽", filtered, fxMap);
 
   const remain = Math.max(0, BUDGET_JQ_TY - jqTyTotal);
 
   if (budgetSpent) budgetSpent.textContent = `NT$ ${fmtMoney_(jqTyTotal)}`;
   if (budgetRemain) budgetRemain.textContent = `NT$ ${fmtMoney_(remain)}`;
-  if (momLine) momLine.textContent = `＊媽媽的支出與分攤：NT$ ${fmtMoney_(momShare)}（媽媽自付：NT$ ${fmtMoney_(momTotal)}）`;
+  if (momLine) momLine.textContent = `＊媽媽的支出與分攤：NT$ ${fmtMoney_(momShare)}（媽媽自付：NT$ ${fmtMoney_(momPaidTotal)}）`;
 
-  // Budget bar
   const pct = clamp(BUDGET_JQ_TY ? (jqTyTotal / BUDGET_JQ_TY) : 0, 0, 1);
   if (budgetBar) budgetBar.style.width = `${Math.round(pct*100)}%`;
 
-  // Pie by category (TWD)
   const catMap = new Map();
   for (const e of filtered) {
     const twd = toTwd_(e, fxMap);
@@ -879,7 +836,6 @@ function renderAnalysis_(){
 
   renderPie_(labels, values);
 
-  // Detail list (cards)
   if (analysisExpenseList) {
     analysisExpenseList.innerHTML = "";
     const items = filtered.slice().sort((a,b)=> (b.date||"").localeCompare(a.date||""));
@@ -892,18 +848,18 @@ function renderAnalysis_(){
           ? ""
           : `<div class="text-xs text-slate-300/80">${escapeHtml_(e.currency)} ${fmtMoney_(e.amount)}（原幣）</div>`;
         const splits = String(e.involved||"").split(",").map(s=>s.trim()).filter(Boolean).join("、");
-        const isPending = (!navigator.onLine) && state.pending.Expenses.has(e.id);
+        const isPendingOffline = (!navigator.onLine) && state.pending.Expenses.has(e.id);
 
         const card = document.createElement("div");
         card.className = "card p-4";
-        if (isPending) card.classList.add("pending-card");
+        if (isPendingOffline) card.classList.add("pending-card");
 
         card.innerHTML = `
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0">
               <div class="flex items-center gap-2">
                 <div class="text-base font-semibold break-words">${escapeHtml_(e.item)}</div>
-                ${isPending ? `<span class="text-xs pending-badge">待上傳</span>` : ``}
+                ${isPendingOffline ? `<span class="text-xs pending-badge">待上傳</span>` : ``}
               </div>
               <div class="mt-1 text-sm text-slate-200/90">${escapeHtml_(e.payer)} • ${escapeHtml_(e.location)} • ${escapeHtml_(e.category)} • ${escapeHtml_(e.payment)}</div>
               <div class="mt-2 text-2xl font-semibold">NT$ ${fmtMoney_(twd)}</div>
@@ -924,50 +880,31 @@ function renderAnalysis_(){
     }
   }
 
-  // Settlement
-  const settleText = buildSettlement_(filtered, fxMap);
-  if (settlement) settlement.textContent = settleText;
+  if (settlement) settlement.textContent = buildSettlement_(filtered, fxMap);
 }
 
 function renderPie_(labels, values){
-  if (!pieCanvas) return;
-
-  // If Chart.js exists, render
-  if (window.Chart) {
-    const ctx = pieCanvas.getContext("2d");
-    if (state.pieChart) state.pieChart.destroy();
-    state.pieChart = new Chart(ctx, {
-      type: "pie",
-      data: { labels, datasets: [{ data: values }] },
-      options: {
-        responsive: true,
-        plugins: {
-          legend: { position: "bottom" },
-          tooltip: {
-            callbacks: {
-              label: (item) => {
-                const v = item.raw || 0;
-                return `${item.label}: NT$ ${fmtMoney_(v)}`;
-              }
-            }
+  if (!pieCanvas || !window.Chart) return;
+  const ctx = pieCanvas.getContext("2d");
+  if (state.pieChart) state.pieChart.destroy();
+  state.pieChart = new Chart(ctx, {
+    type: "pie",
+    data: { labels, datasets: [{ data: values }] },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { position: "bottom" },
+        tooltip: {
+          callbacks: {
+            label: (item) => `${item.label}: NT$ ${fmtMoney_(item.raw || 0)}`
           }
         }
       }
-    });
-    return;
-  }
-
-  // Fallback: show text
-  const total = values.reduce((a,b)=>a+b,0);
-  pieCanvas.replaceWith(Object.assign(document.createElement("div"), {
-    className: "card p-4 text-sm text-slate-200/80",
-    innerHTML: labels.map((l,i)=> `${escapeHtml_(l)}：NT$ ${fmtMoney_(values[i])}`).join("<br>") + `<div class="mt-2 text-xs text-slate-300/80">Total：NT$ ${fmtMoney_(total)}</div>`
-  }));
+    }
+  });
 }
 
 function buildSettlement_(items, fxMap){
-  // Simplified fair split by Involved (equal split), compute net for each person:
-  // net(person) = share - paid
   const paid = new Map(PEOPLE.map(p=>[p,0]));
   const share = new Map(PEOPLE.map(p=>[p,0]));
 
@@ -978,19 +915,12 @@ function buildSettlement_(items, fxMap){
     const inv = String(e.involved||"").split(",").map(s=>s.trim()).filter(Boolean);
     if (!inv.length) continue;
     const each = twd / inv.length;
-    for (const p of inv) {
-      if (!share.has(p)) share.set(p, 0);
-      share.set(p, share.get(p) + each);
-    }
+    for (const p of inv) share.set(p, (share.get(p)||0) + each);
   }
 
   const net = new Map();
-  for (const p of PEOPLE) {
-    const n = (share.get(p)||0) - (paid.get(p)||0); // positive means should pay, negative means should receive
-    net.set(p, n);
-  }
+  for (const p of PEOPLE) net.set(p, (share.get(p)||0) - (paid.get(p)||0));
 
-  // Greedy settle
   const debtors = [];
   const creditors = [];
   for (const [p,n] of net.entries()) {
@@ -1003,18 +933,14 @@ function buildSettlement_(items, fxMap){
   const lines = [];
   let i=0,j=0;
   while(i<debtors.length && j<creditors.length){
-    const [dp, dn] = debtors[i];
-    const [cp, cn] = creditors[j];
-    const pay = Math.min(dn, cn);
-    lines.push(`${dp} → ${cp}：NT$ ${fmtMoney_(Math.round(pay))}`);
+    const pay = Math.min(debtors[i][1], creditors[j][1]);
+    lines.push(`${debtors[i][0]} → ${creditors[j][0]}：NT$ ${fmtMoney_(Math.round(pay))}`);
     debtors[i][1] -= pay;
     creditors[j][1] -= pay;
     if (debtors[i][1] <= 1) i++;
     if (creditors[j][1] <= 1) j++;
   }
-
-  if (!lines.length) return "目前不需要分帳結算。";
-  return lines.join("\n");
+  return lines.length ? lines.join("\n") : "目前不需要分帳結算。";
 }
 
 function computePersonShareTwd_(person, items, fxMap){
@@ -1028,37 +954,12 @@ function computePersonShareTwd_(person, items, fxMap){
   return Math.round(total);
 }
 
-function getFxMap_(){
-  // key format: `${date}:${currency}` but if you haven't built FX UI yet, default 1
-  return load(LS.fx, {});
-}
-function toTwd_(e, fxMap){
-  const amt = Number(e.amount||0);
-  if (e.currency === "TWD") return Math.round(amt);
-  // default 1 if missing
-  // Use latest stored key for that currency (any date) if exact date not found
-  const exactKey = `${e.date}:${e.currency}`;
-  let fx = Number(fxMap[exactKey] || 0);
-
-  if (!fx) {
-    const candidates = Object.keys(fxMap).filter(k => k.endsWith(`:${e.currency}`));
-    if (candidates.length) fx = Number(fxMap[candidates.sort().pop()] || 0);
-  }
-  if (!fx) fx = 1;
-  return Math.round(amt * fx);
-}
-function sumTwd_(items, fxMap){
-  return Math.round(items.reduce((s,e)=> s + toTwd_(e, fxMap), 0));
-}
-
 // ====================== FILTER MODAL ======================
 function buildFilterModal_(){
-  // Build option buttons
   buildFilterBox_(filterWhoBox, PEOPLE, state.filter.who);
   buildFilterBox_(filterWhereBox, WHERE, state.filter.where);
   buildFilterBox_(filterCategoryBox, EXP_CATEGORIES, state.filter.category);
   buildFilterBox_(filterPayBox, PAY, state.filter.pay);
-
   renderFilterChips_();
 }
 
@@ -1082,8 +983,8 @@ function buildFilterBox_(boxEl, options, setRef){
 
 function renderFilterChips_(){
   if (!filterChips) return;
-  const chips = [];
 
+  const chips = [];
   for (const v of state.filter.who) chips.push({ k:"who", v });
   for (const v of state.filter.where) chips.push({ k:"where", v });
   for (const v of state.filter.category) chips.push({ k:"category", v });
@@ -1102,6 +1003,7 @@ function renderFilterChips_(){
     chip.addEventListener("click", () => {
       state.filter[c.k].delete(c.v);
       buildFilterModal_();
+      renderAnalysis_();
     });
     filterChips.appendChild(chip);
   });
@@ -1178,7 +1080,6 @@ function setupViewer_(){
     pointers.delete(e.pointerId);
     if (pointers.size === 0) lastPan = null;
     if (pointers.size === 1) {
-      // re-init pan baseline
       const pts = Array.from(pointers.values());
       if (pts.length) lastPan = { x: pts[0].x, y: pts[0].y, tx: state.viewer.tx, ty: state.viewer.ty };
     }
@@ -1187,7 +1088,7 @@ function setupViewer_(){
   viewerStage.addEventListener("pointerup", endPointer);
   viewerStage.addEventListener("pointercancel", endPointer);
 
-  // One-finger swipe down to close (only when scale ~ 1)
+  // swipe down to close when scale ~ 1
   let startY = 0;
   viewerStage.addEventListener("touchstart", (e) => {
     if (e.touches.length === 1) startY = e.touches[0].clientY;
@@ -1199,15 +1100,6 @@ function setupViewer_(){
     if (dy > 120 && state.viewer.scale <= 1.05) closeViewer_();
   }, { passive: true });
 
-  // Wheel zoom (desktop)
-  viewerStage.addEventListener("wheel", (e) => {
-    e.preventDefault();
-    const delta = Math.sign(e.deltaY);
-    const next = state.viewer.scale * (delta > 0 ? 0.92 : 1.08);
-    state.viewer.scale = clamp(next, 0.5, 6);
-    apply();
-  }, { passive: false });
-
   reset();
 }
 
@@ -1215,7 +1107,6 @@ function openViewer_(src){
   if (!modalViewer || !viewerImg) return;
   viewerImg.src = src;
   modalViewer.classList.remove("hidden");
-  // reset transform
   state.viewer.scale = 1;
   state.viewer.tx = 0;
   state.viewer.ty = 0;
@@ -1238,8 +1129,7 @@ function insertLinkFromSelection_(editableEl){
   a.href = url;
   a.target = "_blank";
   a.rel = "noopener noreferrer";
-  a.style.textDecoration = "underline";
-  a.style.color = "rgba(191,233,255,0.98)";
+  a.className = "link-soft";
   a.appendChild(range.extractContents());
   range.insertNode(a);
 
@@ -1270,7 +1160,7 @@ function attachEvents_(){
   btnLinkTitle?.addEventListener("click", () => insertLinkFromSelection_(itTitle));
   btnLinkNote?.addEventListener("click", () => insertLinkFromSelection_(itNote));
 
-  // 長按（右鍵）設定 Itinerary 的 Link 欄位
+  // Right click on "插入連結" set Link column
   btnLinkTitle?.addEventListener("contextmenu", (e) => {
     e.preventDefault();
     const u = prompt("設定此行程的 Link 欄位（可空白）", state.itDraftLink || "");
@@ -1297,8 +1187,7 @@ function attachEvents_(){
       state.itDraftDriveFileId = res.file_id;
       state.itDraftDriveUrl = res.direct_view_url;
       updateSyncBadge_();
-    } catch (e) {
-      console.warn(e);
+    } catch {
       updateSyncBadge_();
       alert("圖片上傳失敗：已保留本地預覽。可稍後再試。");
     }
@@ -1318,40 +1207,38 @@ function attachEvents_(){
   btnForceSync?.addEventListener("click", syncNow_);
 
   btnFilter?.addEventListener("click", openFilterModal_);
+  btnExpFilterQuick?.addEventListener("click", () => { setTab_("analysis"); openFilterModal_(); });
+
   btnCloseFilter?.addEventListener("click", closeFilterModal_);
   btnClearFilter?.addEventListener("click", () => { clearFilters_(); renderAnalysis_(); });
   btnApplyFilter?.addEventListener("click", () => { closeFilterModal_(); renderAnalysis_(); });
 
   btnFx?.addEventListener("click", () => {
-    alert("匯率設定 UI 若你要我做，我可以把它做成小 modal（可輸入 NOK/ISK/EUR/GBP/AED → TWD）。目前若 LS.fx 沒值會以 1 計算。");
+    alert("匯率設定 UI 你要我做成 modal 的話我可以直接補上（可輸入各幣別→TWD）。目前若未設定匯率，會以 1 計算。");
   });
 }
 
-// ====================== EDGE GESTURES (page swipe + date swipe) ======================
+// ====================== EDGE GESTURES ======================
 function setupEdgeGestures_(){
-  // 你原本需求：邊緣左右滑動切換頁面、一般左右滑動切換日期
-  // 這裡做簡化：偵測觸控開始位置是否在左右 18px 內
   let startX = 0, startY = 0, startAtEdge = false;
 
-  const onTouchStart = (e) => {
+  document.addEventListener("touchstart", (e) => {
     if (e.touches.length !== 1) return;
     startX = e.touches[0].clientX;
     startY = e.touches[0].clientY;
     startAtEdge = (startX <= 18 || startX >= (window.innerWidth - 18));
-  };
+  }, { passive: true });
 
-  const onTouchEnd = (e) => {
+  document.addEventListener("touchend", (e) => {
     if (!startX) return;
     const endX = e.changedTouches?.[0]?.clientX ?? startX;
     const endY = e.changedTouches?.[0]?.clientY ?? startY;
     const dx = endX - startX;
     const dy = endY - startY;
 
-    // avoid vertical scroll gestures
     if (Math.abs(dx) < 40 || Math.abs(dx) < Math.abs(dy)) return;
 
     if (startAtEdge) {
-      // switch tab
       const order = ["itinerary","expenses","analysis"];
       const idx = order.indexOf(state.tab);
       const next = dx < 0 ? clamp(idx+1, 0, order.length-1) : clamp(idx-1, 0, order.length-1);
@@ -1359,7 +1246,6 @@ function setupEdgeGestures_(){
       return;
     }
 
-    // switch date (only in itinerary page)
     if (state.tab === "itinerary") {
       const chips = $$(".date-chip");
       const curIdx = chips.findIndex(c => c.dataset.date === state.selectedDate);
@@ -1367,15 +1253,11 @@ function setupEdgeGestures_(){
       const nextDate = chips[nextIdx]?.dataset.date;
       if (nextDate) setSelectedDate_(nextDate, true);
     }
-  };
-
-  document.addEventListener("touchstart", onTouchStart, { passive: true });
-  document.addEventListener("touchend", onTouchEnd, { passive: true });
+  }, { passive: true });
 }
 
 // ====================== PULL TO REFRESH ======================
 function setupPullToRefresh_(containers){
-  // Create indicator
   let ind = $("#ptrIndicator");
   if (!ind) {
     ind = document.createElement("div");
@@ -1406,21 +1288,17 @@ function setupPullToRefresh_(containers){
     let startY = 0;
     let dist = 0;
 
-    const isAtTop = () => {
-      // if element is page container, check window scroll too
-      if (el === pageIt || el === pageEx || el === pageAn) return (window.scrollY <= 0);
-      return (el.scrollTop <= 0);
-    };
+    const isAtTop = () => (window.scrollY <= 0);
 
-    const onStart = (e) => {
+    el.addEventListener("touchstart", (e) => {
       if (e.touches.length !== 1) return;
       if (!isAtTop()) return;
       pulling = true;
       startY = e.touches[0].clientY;
       dist = 0;
-    };
+    }, { passive: true });
 
-    const onMove = (e) => {
+    el.addEventListener("touchmove", (e) => {
       if (!pulling) return;
       const y = e.touches[0].clientY;
       dist = Math.max(0, y - startY);
@@ -1428,9 +1306,9 @@ function setupPullToRefresh_(containers){
       const pct = clamp(dist / THRESH, 0, 1);
       ind.textContent = (dist >= THRESH) ? "放開即可重新整理" : "下拉重新整理";
       ind.style.transform = `translateY(${(-120 + pct*120)}%)`;
-    };
+    }, { passive: false });
 
-    const onEnd = async () => {
+    el.addEventListener("touchend", async () => {
       if (!pulling) return;
       pulling = false;
 
@@ -1447,7 +1325,7 @@ function setupPullToRefresh_(containers){
           renderAll_();
           ind.textContent = "已更新";
           setTimeout(() => ind.style.transform = "translateY(-120%)", 500);
-        } catch (e) {
+        } catch {
           ind.textContent = "更新失敗";
           setTimeout(() => ind.style.transform = "translateY(-120%)", 800);
         }
@@ -1455,12 +1333,13 @@ function setupPullToRefresh_(containers){
         ind.style.transform = "translateY(-120%)";
       }
       dist = 0;
-    };
+    }, { passive: true });
 
-    el.addEventListener("touchstart", onStart, { passive: true });
-    el.addEventListener("touchmove", onMove, { passive: false });
-    el.addEventListener("touchend", onEnd, { passive: true });
-    el.addEventListener("touchcancel", onEnd, { passive: true });
+    el.addEventListener("touchcancel", () => {
+      pulling = false;
+      dist = 0;
+      ind.style.transform = "translateY(-120%)";
+    }, { passive: true });
   });
 }
 
@@ -1473,11 +1352,16 @@ function queueOutbox_(op){
 }
 
 async function maybeAutoSync_(){
-  updateSyncBadge_();
   if (!navigator.onLine) return;
   const box = load(LS.outbox, []);
   if (!box.length) return;
-  await syncNow_();
+
+  setSyncBadge_("sync", "同步中");
+  try {
+    await syncNow_();
+  } catch {
+    setSyncBadge_("warn", "同步失敗");
+  }
 }
 
 async function syncNow_(){
@@ -1489,17 +1373,18 @@ async function syncNow_(){
   setSyncBadge_("sync", "同步中");
   try {
     const payload = { action: "sync", ops: box };
-    await postJsonNoPreflight_(GAS_URL, payload);
+    const res = await postJsonNoPreflight_(GAS_URL, payload);
+    if (!res?.ok) throw new Error(res?.error || "sync failed");
 
     await pullAll_();
-
     save(LS.outbox, []);
     updateSyncBadge_();
     renderAll_();
   } catch (e) {
     console.warn(e);
-    updateSyncBadge_();
-    alert("同步失敗：你可以稍後再試，或保持離線繼續記錄（會保留待上傳）。");
+    setSyncBadge_("warn", "同步失敗");
+    alert("同步失敗：已保留待送出資料，可稍後再試。");
+    throw e;
   }
 }
 
@@ -1588,11 +1473,28 @@ function fileToDataUrl_(file){
   });
 }
 
+// ====================== FX ======================
+function getFxMap_(){ return load(LS.fx, {}); }
+function toTwd_(e, fxMap){
+  const amt = Number(e.amount||0);
+  if (e.currency === "TWD") return Math.round(amt);
+
+  const exactKey = `${e.date}:${e.currency}`;
+  let fx = Number(fxMap[exactKey] || 0);
+
+  if (!fx) {
+    const candidates = Object.keys(fxMap).filter(k => k.endsWith(`:${e.currency}`));
+    if (candidates.length) fx = Number(fxMap[candidates.sort().pop()] || 0);
+  }
+  if (!fx) fx = 1;
+  return Math.round(amt * fx);
+}
+function sumTwd_(items, fxMap){ return Math.round(items.reduce((s,e)=> s + toTwd_(e, fxMap), 0)); }
+
 // ====================== RENDER ALL ======================
 function renderAll_(){
   updateSyncBadge_();
 
-  // restore tab if stored
   const ui = load(LS.ui, {});
   if (ui.tab && ["itinerary","expenses","analysis"].includes(ui.tab)) state.tab = ui.tab;
 
@@ -1602,10 +1504,8 @@ function renderAll_(){
   if (state.tab === "analysis") renderAnalysis_();
 }
 
-/* =========================================================
- * ✅ 你需要加的一小段 CSS（放到 styles.css）
- * ---------------------------------------------------------
- * .pending-card { border: 2px dashed rgba(251,146,60,.95) !important; }
- * .pending-badge { padding: 2px 8px; border-radius: 999px; border: 1px dashed rgba(251,146,60,.95); color: rgba(251,146,60,.95); }
- * .link-soft { text-decoration: underline; color: rgba(191,233,255,0.98); }
- * ========================================================= */
+// ====================== STARTUP DEFAULTS ======================
+(function startup_(){
+  // make sure date strip starts at trip start
+  state.selectedDate = fmtDate(tripStartD);
+})();
