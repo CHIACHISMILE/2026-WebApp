@@ -128,7 +128,8 @@
             </div>
           </div>
 
-          <button @click="openAddItin" class="w-full py-4 mt-4 btn-dashed rounded-2xl font-bold hover:shadow-sm transition swipe-protected">+ 新增行程</button>
+          <button @click="openAddItin"
+        class="w-full py-4 mt-4 border-2 border-dashed border-sky-400 text-sky-600 bg-white/50 rounded-2xl font-bold hover:bg-sky-50 transition swipe-protected shadow-sm"> + 新增行程</button>
           <div class="h-10"></div>
         </div>
       </div>
@@ -241,11 +242,20 @@
                 </div>
               </div>
               <div class="text-right min-w-[96px] swipe-protected">
-                <div class="font-bold text-slate-700 text-lg tracking-tight">{{ exp.amount }} <span class="text-[10px] text-slate-400 font-bold">{{ exp.currency }}</span></div>
-                <div v-if="exp.currency !== 'NTD'" class="text-[10px] text-slate-400 font-mono font-bold mt-1">≈ {{ formatNumber(getAmountTWD(exp)) }}</div>
-                <div class="mt-3 flex gap-2 justify-end opacity-60 hover:opacity-100 transition">
-                  <button @click="openEditExp(exp)" class="text-[10px] text-sky-600 bg-white border border-sky-100 px-2 py-1 rounded">編輯</button>
-                  <button @click="deleteExp(exp)" class="text-[10px] text-red-500 bg-white border border-red-100 px-2 py-1 rounded">刪除</button>
+                <div class="text-right min-w-[96px] swipe-protected flex flex-col items-end justify-center h-full">
+                    <div class="font-black text-slate-800 text-lg tracking-tight flex items-baseline gap-1">
+                        <span>{{ formatNumber(getAmountTWD(exp)) }}</span>
+                        <span class="text-[10px] text-slate-400 font-bold">TWD</span>
+                    </div>
+                
+                    <div v-if="exp.currency !== 'NTD'" class="text-[11px] text-sky-600 font-mono font-bold mt-0.5 bg-sky-50 px-1.5 py-0.5 rounded border border-sky-100">
+                        {{ formatNumber(exp.amount) }} {{ exp.currency }}
+                    </div>
+                
+                    <div class="mt-2 flex gap-2 justify-end opacity-60 hover:opacity-100 transition">
+                        <button @click="openEditExp(exp)" class="text-[10px] text-sky-600 bg-white border border-sky-200 px-2 py-1 rounded shadow-sm">編輯</button>
+                        <button @click="deleteExp(exp)" class="text-[10px] text-red-500 bg-white border border-red-200 px-2 py-1 rounded shadow-sm">刪除</button>
+                    </div>
                 </div>
               </div>
             </div>
