@@ -1235,3 +1235,87 @@ function insertLinkFromSelection_(editableEl){
     alert("插入連結失敗，請重試");
   }
 }
+
+function openViewer_(src){
+  viewerImg.src = src;
+  modalViewer.classList.remove("hidden");
+  resetViewer_();
+}
+
+function closeViewer_(){
+  modalViewer.classList.add("hidden");
+  viewerImg.src = "";
+}
+
+btnCloseViewer?.addEventListener("click", closeViewer_);
+btnResetViewer?.addEventListener("click", resetViewer_);
+
+// Basic pan/zoom with pointer events
+let v = { scale: 1, x: 0, y: 0, startX: 0, startY: 0, panning: false, lastY: 0 };
+
+function applyViewerTransform_(){
+  viewerImg.style.transform = `translate(${v.x}px, ${v.y}px) scale(${v.scale})`;
+}
+
+function resetViewer_(){
+  v.scale = 1; v.x = 0; v.y = 0;
+  applyViewerTransform_();
+}
+
+let pointers = new Map();
+let pinchStart = { dist: 0, scale: 1 };
+
+viewerStage?.addEventListener("pointerdown", (e) => {
+  viewerStage.setPointerCapture(e.pointerId);
+  pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  v.startX = e.clientX - v.x;
+  v.startY = e.clientY - v.y;
+  v.lastY = e.clientY;
+  v.panning = true;
+
+  if (pointers.size === 2) {
+    const pts = Array.from(pointers.values());
+    pinchStart.dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+    pinchStart.scale = v.scale;
+  }
+});
+
+viewerStage?.addEventListener("pointermove", (e) => {
+  if (!pointers.has(e.pointerId)) return;
+  pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+  if (pointers.size === 2) {
+    const pts = Array.from(pointers.values());
+    const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+    const ratio = dist / (pinchStart.dist || dist);
+    v.scale = clamp(pinchStart.scale * ratio, 1, 4);
+    applyViewerTransform_();
+    return;
+  }
+
+  // single finger pan
+  if (v.panning && pointers.size === 1) {
+    const dx = e.clientX - v.startX;
+    const dy = e.clientY - v.startY;
+
+    // If near default scale, allow "pull down to close"
+    const pullDown = (v.scale <= 1.02) && (e.clientY - v.lastY > 10) && (dy > 80);
+    v.x = dx;
+    v.y = dy;
+    applyViewerTransform_();
+
+    if (pullDown) closeViewer_();
+  }
+});
+
+viewerStage?.addEventListener("pointerup", (e) => {
+  pointers.delete(e.pointerId);
+  if (pointers.size < 2) pinchStart.dist = 0;
+  v.panning = false;
+});
+
+viewerStage?.addEventListener("pointercancel", (e) => {
+  pointers.delete(e.pointerId);
+  v.panning = false;
+});
+
