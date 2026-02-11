@@ -54,19 +54,23 @@ createApp({
     const imgViewerEl = ref(null);
     const imgGesture = ref({ startX: 0, startY: 0, currentX: 0, currentY: 0, scale: 1, isPulling: false, isZooming: false, startDistance: 0 });
 
-    // Note Formatting
+    // --- Note Formatting Logic (Updated) ---
     const formatNote = (text) => {
         if (!text) return '';
         let formatted = text
+            // 1. Basic Sanitization
             .replace(/&/g, "&").replace(/</g, "<").replace(/>/g, ">")
-            .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>')
-            .replace(/(https?:\/\/[^\s<]+)/g, (url) => `<a href="${url}" target="_blank">${url}</a>`)
+            // 2. Markdown Links [Text](URL) -> Show "Text"
+            .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" class="note-link">$1</a>')
+            // 3. Raw URLs (NOT inside href) -> Show "🌍 開啟連結" to hide long URL
+            // This regex finds http... that is NOT preceded by =" or ](
+            .replace(/(?<!href="|]\()((https?:\/\/[^\s<]+))/g, '<a href="$1" target="_blank" class="note-link"> 🔗 </a>')
+            // 4. Newlines
             .replace(/\n/g, '<br>');
-        return formatted.replace(/<a href="<a href="/g, '<a href="').replace(/">.*<\/a>">/g, '">');
+        return formatted;
     };
 
-    // --- Color Logic (Fixed: Returns Tailwind BG Classes) ---
-    // 用於圖表和卡片側邊欄的顏色對照
+    // --- Color Logic ---
     const getExpenseColor = (item) => {
       const s = String(item || '');
       if (s.includes('交通') || s.includes('機票') || s.includes('租車') || s.includes('油')) return 'bg-blue-400';
@@ -86,7 +90,6 @@ createApp({
       }
     };
     
-    // Tag 文字顏色 (對應背景色)
     const getItemTagClass = (item) => {
       const s = String(item || '');
       if (s.includes('交通') || s.includes('機票')) return 'bg-blue-50 text-blue-600';
@@ -96,7 +99,7 @@ createApp({
       return 'bg-slate-100 text-slate-500';
     };
 
-    // --- Image Gesture Logic ---
+    // --- Image Gesture ---
     const getDistance = (touches) => Math.hypot(touches[0].clientX - touches[1].clientX, touches[0].clientY - touches[1].clientY);
     const handleImgTouchStart = (e) => {
         if (e.touches.length === 2) { imgGesture.value.isZooming = true; imgGesture.value.startDistance = getDistance(e.touches); } 
@@ -164,8 +167,8 @@ createApp({
       todayWeekday.value = days[now.getDay()];
     };
 
-    // --- SCROLL & GESTURE ---
-    const gesture = { active:false, mode:null, startX:0, startY:0, dx:0, dy:0, startedAtLeftEdge:false, startedAtRightEdge:false, inSelectable:false, selectIntent:false, longPressTimer:null };
+    // --- SCROLL & GESTURE (Fixed for Top-Only Pull) ---
+    const gesture = { active:false, mode:null, startX:0, startY:0, dx:0, dy:0, startedAtLeftEdge:false, startedAtRightEdge:false, inSelectable:false, selectIntent:false, longPressTimer:null, allowPull: false };
     const hasTextSelection = () => { const sel = window.getSelection(); return !!(sel && sel.toString && sel.toString().length > 0); };
     const isBlockedTarget = (target) => {
       if (target.closest('.swipe-protected')) return true;
@@ -174,28 +177,49 @@ createApp({
       return false;
     };
     const clearLongPress = () => { if (gesture.longPressTimer) { clearTimeout(gesture.longPressTimer); gesture.longPressTimer = null; } };
+    
     const attachGestureListeners = () => {
       const el = scrollContainer.value; if (!el) return;
+      
       const onTouchStart = (e) => {
-        const t = e.touches[0]; gesture.active = true; gesture.mode = null; gesture.dx = 0; gesture.dy = 0; gesture.startX = t.clientX; gesture.startY = t.clientY;
+        const t = e.touches[0]; 
+        gesture.active = true; gesture.mode = null; gesture.dx = 0; gesture.dy = 0; gesture.startX = t.clientX; gesture.startY = t.clientY;
         const w = window.innerWidth; gesture.startedAtLeftEdge = (gesture.startX <= w * 0.15); gesture.startedAtRightEdge = (gesture.startX >= w * 0.85);
+        
+        // 修改點：判斷是否為「標題列下拉」。假設標題列高度約 140px
+        const isHeaderPull = t.clientY < 140; 
+        // 只有當「點擊位置在標題列」且「目前內容捲動到頂部」時，才允許下拉
+        gesture.allowPull = isHeaderPull && (el.scrollTop <= 0);
+
         gesture.inSelectable = !!e.target.closest('.allow-select'); gesture.selectIntent = false; clearLongPress();
         if (gesture.inSelectable) gesture.longPressTimer = setTimeout(() => { gesture.selectIntent = true; }, 220);
         gesture.blocked = isBlockedTarget(e.target);
       };
+
       const onTouchMove = (e) => {
         if (!gesture.active || gesture.blocked) return;
         const t = e.touches[0]; const dx = t.clientX - gesture.startX; const dy = t.clientY - gesture.startY;
         gesture.dx = dx; gesture.dy = dy;
+        
         if (gesture.inSelectable) { if (Math.abs(dx) > 10 || Math.abs(dy) > 10) clearLongPress(); }
         if (gesture.inSelectable && (gesture.selectIntent || hasTextSelection())) return;
+
         if (!gesture.mode) { if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return; gesture.mode = (Math.abs(dx) > Math.abs(dy)) ? 'h' : 'v'; }
-        if (gesture.mode === 'h') { if ((gesture.startedAtLeftEdge || gesture.startedAtRightEdge) && e.cancelable) e.preventDefault(); } 
+        
+        if (gesture.mode === 'h') { 
+            if ((gesture.startedAtLeftEdge || gesture.startedAtRightEdge) && e.cancelable) e.preventDefault(); 
+        } 
         else if (gesture.mode === 'v') {
-          const scroller = scrollContainer.value;
-          if (scroller && scroller.scrollTop <= 0 && dy > 0) { if (e.cancelable) e.preventDefault(); pullDistance.value = Math.min(72, Math.pow(dy, 0.7)); } else { pullDistance.value = 0; }
+          // 修改點：嚴格檢查 allowPull 旗標
+          if (gesture.allowPull && dy > 0) { 
+             if (e.cancelable) e.preventDefault(); 
+             pullDistance.value = Math.min(72, Math.pow(dy, 0.7)); 
+          } else { 
+             pullDistance.value = 0; 
+          }
         }
       };
+
       const onTouchEnd = () => {
         if (!gesture.active) return; gesture.active = false; clearLongPress();
         if (pullDistance.value > 60) { pullDistance.value = 60; isPullRefreshing.value = true; loadData(); } else { pullDistance.value = 0; }
@@ -206,7 +230,7 @@ createApp({
                else if (tab.value === 'itinerary' && !gesture.startedAtLeftEdge && !gesture.startedAtRightEdge) { if (gesture.dx < 0) switchDay('next'); else switchDay('prev'); }
            }
         }
-        gesture.mode = null; gesture.inSelectable = false; gesture.selectIntent = false;
+        gesture.mode = null; gesture.inSelectable = false; gesture.selectIntent = false; gesture.allowPull = false;
       };
       attachGestureListeners._handlers = { onTouchStart, onTouchMove, onTouchEnd };
       el.addEventListener('touchstart', onTouchStart, { passive: true }); el.addEventListener('touchmove',  onTouchMove,  { passive: false }); el.addEventListener('touchend',   onTouchEnd,   { passive: true });
