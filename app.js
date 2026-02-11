@@ -1,5 +1,6 @@
 // ====================== CONFIG ======================
 const GAS_URL = "https://script.google.com/macros/s/AKfycbzfX8f3-CcY6X-nu7Sm545Xk5ysHRrWvwqWxBV0-YGX3Ss3ShJM6r9eDnXcoBNwBULhxw/exec";
+const DRIVE_FOLDER_ID = "10ogmnlqLreB_PzSwyuQGtKzO759NVF3M";
 const TRIP_NAME = "2026冰島挪威之旅";
 const TRIP_START = "2026-08-30"; // local date
 const TRIP_END   = "2026-09-26";
@@ -152,6 +153,13 @@ const btnClearFilter = $("#btnClearFilter");
 const btnApplyFilter = $("#btnApplyFilter");
 const filterChips = $("#filterChips");
 
+const modalViewer = $("#modalViewer");
+const btnCloseViewer = $("#btnCloseViewer");
+const btnResetViewer = $("#btnResetViewer");
+const viewerStage = $("#viewerStage");
+const viewerImg = $("#viewerImg");
+
+
 // ====================== APP STATE ======================
 let state = {
   tab: "itinerary",
@@ -298,6 +306,8 @@ function openItModal_(editId=null){
 
   // reset draft
   state.itDraftImageDataUrl = "";
+  state.itDraftDriveFileId = it.imageDriveId || "";
+  state.itDraftDriveUrl = it.imageDriveUrl || "";
   itImage.value = "";
   itImagePreview.innerHTML = "";
 
@@ -347,6 +357,8 @@ function saveItinerary_(){
   const address = itAddress.value.trim();
   const noteHtml = itNote.innerHTML.trim();
   const imageDataUrl = state.itDraftImageDataUrl;
+  const driveFileId = state.itDraftDriveFileId || "";
+  const driveUrl = state.itDraftDriveUrl || "";
 
   if (!titleHtml) {
     alert("請輸入標題");
@@ -361,6 +373,8 @@ function saveItinerary_(){
       start, end, category,
       titleHtml, address, noteHtml,
       imageDataUrl,
+      imageDriveId: driveFileId,
+      imageDriveUrl: driveUrl,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     });
@@ -412,8 +426,18 @@ function renderItinerary_(){
     const catBg = IT_CAT_COLORS[it.category] || "rgba(255,255,255,0.08)";
     const time = (it.start || it.end) ? `${it.start||""}–${it.end||""}` : "";
     const addr = it.address ? `<div class="mt-2 text-xs text-slate-200/80 break-words">${escapeHtml_(it.address)}</div>` : "";
-    const img = it.imageDataUrl ? `<div class="mt-3"><img class="rounded-2xl border border-white/10" src="${it.imageDataUrl}" alt="img"/></div>` : "";
-
+    const imgSrc = it.imageDriveUrl || it.imageDataUrl || "";
+    const img = imgSrc
+      ? `<div class="mt-3">
+           <img class="rounded-2xl border border-white/10 cursor-pointer"
+                data-view-src="${imgSrc}"
+                src="${imgSrc}" alt="img"/>
+         </div>`
+      : "";
+    const imgEl = card.querySelector("img[data-view-src]");
+    if (imgEl) {
+      imgEl.addEventListener("click", () => openViewer_(imgEl.dataset.viewSrc));
+    }
     const card = document.createElement("div");
     card.className = "card p-4";
     card.innerHTML = `
@@ -1083,11 +1107,42 @@ function attachEvents_(){
   itImage.addEventListener("change", async () => {
     const f = itImage.files?.[0];
     if (!f) return;
+  
+    // 先本地預覽（離線也有圖）
     const dataUrl = await fileToDataUrl_(f);
     state.itDraftImageDataUrl = dataUrl;
     itImagePreview.innerHTML = `<img class="rounded-2xl border border-white/10" src="${dataUrl}" alt="preview" />`;
-    // TODO: later call GAS uploadImage to save into Drive folder
+  
+    // 再嘗試上傳到 Drive（需要在線上）
+    if (!navigator.onLine) {
+      alert("目前離線：已先本地預覽。連線後再重新選取圖片即可上傳同步。");
+      return;
+    }
+  
+    setSyncStatus("sync");
+    try {
+      const payload = {
+        action: "uploadImage",
+        folder_id: DRIVE_FOLDER_ID,
+        filename: f.name || `it_${Date.now()}.jpg`,
+        mime_type: f.type || "image/jpeg",
+        data_url: dataUrl
+      };
+  
+      const res = await postJsonNoPreflight_(GAS_URL, payload);
+      if (!res?.ok) throw new Error(res?.error || "uploadImage failed");
+  
+      // 把 Drive 圖片資訊暫存到 draft（保存行程時會寫入）
+      state.itDraftDriveFileId = res.file_id;
+      state.itDraftDriveUrl = res.direct_view_url; // 可直接用在 <img src="">
+      setSyncStatus("wait");
+    } catch (e) {
+      console.warn(e);
+      setSyncStatus("wait");
+      alert("圖片上傳失敗：已保留本地預覽。你可以稍後重試。");
+    }
   });
+
 
   btnLinkTitle.addEventListener("click", () => insertLinkFromSelection_(itTitle));
   btnLinkNote.addEventListener("click", () => insertLinkFromSelection_(itNote));
