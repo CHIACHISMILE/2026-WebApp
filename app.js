@@ -188,11 +188,9 @@ createApp({
     const clearLongPress = () => { if (gesture.longPressTimer) { clearTimeout(gesture.longPressTimer); gesture.longPressTimer = null; } };
     
     const attachGestureListeners = () => {
-      // 修改 1: 監聽器要綁在整個視窗，而不是只有 scrollContainer
-      // 這樣手指在標題列 (Header) 滑動時也能觸發
+      // 綁定到 window 以確保能捕捉到最頂部的觸摸
       const targetEl = window; 
-      const contentEl = scrollContainer.value; // 用來檢查是否已經捲動到底
-    
+      
       const onTouchStart = (e) => {
         const t = e.touches[0]; 
         gesture.active = true; gesture.mode = null; gesture.dx = 0; gesture.dy = 0; 
@@ -202,24 +200,19 @@ createApp({
         gesture.startedAtLeftEdge = (gesture.startX <= w * 0.15); 
         gesture.startedAtRightEdge = (gesture.startX >= w * 0.85);
         
-        // 判斷是否為「標題列下拉」(Y < 140)
-        const isHeaderPull = t.clientY < 140;
-        
-        // 判斷邏輯更新：
-        // 1. 如果摸的是標題列 (isHeaderPull) -> 永遠允許下拉 (因為標題列本身不會捲動)
-        // 2. 如果摸的是內容區 -> 只有當內容區捲到最頂端 (scrollTop <= 0) 才允許下拉
-        if (isHeaderPull) {
-            gesture.allowPull = true;
-        } else {
-            gesture.allowPull = (contentEl && contentEl.scrollTop <= 0);
-        }
-    
+        // [關鍵修改] 只有當手指按在「標題列區域」時才允許下拉
+        // 設定 140px 為標題列的大致高度
+        const isHeaderArea = t.clientY <= 140;
+
+        // 條件：必須按在標題列，且不是在點擊按鈕或輸入框
+        gesture.allowPull = isHeaderArea && !isBlockedTarget(e.target);
+
         gesture.inSelectable = !!e.target.closest('.allow-select'); 
         gesture.selectIntent = false; clearLongPress();
         if (gesture.inSelectable) gesture.longPressTimer = setTimeout(() => { gesture.selectIntent = true; }, 220);
         gesture.blocked = isBlockedTarget(e.target);
       };
-    
+
       const onTouchMove = (e) => {
         if (!gesture.active || gesture.blocked) return;
         const t = e.touches[0]; 
@@ -229,28 +222,41 @@ createApp({
         
         if (gesture.inSelectable) { if (Math.abs(dx) > 10 || Math.abs(dy) > 10) clearLongPress(); }
         if (gesture.inSelectable && (gesture.selectIntent || hasTextSelection())) return;
-    
-        if (!gesture.mode) { if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return; gesture.mode = (Math.abs(dx) > Math.abs(dy)) ? 'h' : 'v'; }
+
+        // 鎖定方向
+        if (!gesture.mode) { 
+            if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return; 
+            gesture.mode = (Math.abs(dx) > Math.abs(dy)) ? 'h' : 'v'; 
+        }
         
         if (gesture.mode === 'h') { 
             if ((gesture.startedAtLeftEdge || gesture.startedAtRightEdge) && e.cancelable) e.preventDefault(); 
         } 
         else if (gesture.mode === 'v') {
+          // [關鍵修改] 只有在允許下拉的狀態下 (從標題列開始) 且向下滑動才執行
           if (gesture.allowPull && dy > 0) { 
-             // 關鍵修改：如果是標題列下拉，或者內容區在頂部，都要阻止原生捲動行為，改成我們的下拉動畫
              if (e.cancelable) e.preventDefault(); 
-             pullDistance.value = Math.min(72, Math.pow(dy, 0.7)); 
+             // 增加拉動的阻力感
+             pullDistance.value = Math.min(80, Math.pow(dy, 0.75)); 
           } else { 
              pullDistance.value = 0; 
           }
         }
       };
-    
+
       const onTouchEnd = () => {
         if (!gesture.active) return; gesture.active = false; clearLongPress();
-        if (pullDistance.value > 60) { pullDistance.value = 60; isPullRefreshing.value = true; loadData(); } else { pullDistance.value = 0; }
         
-        // 左右滑動切換分頁邏輯維持不變
+        // 觸發更新
+        if (pullDistance.value > 60) { 
+            pullDistance.value = 60; 
+            isPullRefreshing.value = true; 
+            loadData(); 
+        } else { 
+            pullDistance.value = 0; 
+        }
+        
+        // 左右滑動切換邏輯 (保持不變)
         if (gesture.mode === 'h' && Math.abs(gesture.dx) > 60) {
            if (!gesture.inSelectable || (!gesture.selectIntent && !hasTextSelection())) {
                if (gesture.startedAtLeftEdge && gesture.dx > 0) { if (tab.value === 'expense') tab.value = 'itinerary'; else if (tab.value === 'analysis') tab.value = 'expense'; }
@@ -260,9 +266,8 @@ createApp({
         }
         gesture.mode = null; gesture.inSelectable = false; gesture.selectIntent = false; gesture.allowPull = false;
       };
-    
+
       attachGestureListeners._handlers = { onTouchStart, onTouchMove, onTouchEnd };
-      // 修改 2: 將監聽器綁定到 window (或 targetEl)
       targetEl.addEventListener('touchstart', onTouchStart, { passive: true }); 
       targetEl.addEventListener('touchmove',  onTouchMove,  { passive: false }); 
       targetEl.addEventListener('touchend',   onTouchEnd,   { passive: true });
