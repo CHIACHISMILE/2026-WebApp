@@ -1,4 +1,4 @@
-const CACHE = "tripapp-v1";
+const CACHE = "tripapp-v1.1";
 const ASSETS = ["./", "./index.html", "./styles.css", "./app.js", "./manifest.webmanifest"];
 
 self.addEventListener("install", (e) => {
