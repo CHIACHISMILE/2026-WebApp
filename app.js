@@ -1,1245 +1,926 @@
-/* =========================================================
- * app.js (v8)
- * Changes vs v7:
- * - Remove manual sync button & feature (pull-to-refresh == manual sync)
- * - Swipe: left/right to change date (itinerary page)
- * - Edge-swipe: switch tabs (from screen edge)
- * - Itinerary add button: keep bottom only
- * - Expenses defaults: no preselect (payer/split none)
- * ========================================================= */
+// 請務必替換成你的 Google Apps Script 網址
+const YOUR_GAS_URL = 'https://script.google.com/macros/s/AKfycbz6PZtqLJzlS2a71R-RfZjpJCuqJVPoP7RuNxEe74mS_uvxBejMNGKboFSn2ArNnXAu/exec';
 
-const GAS_URL = "https://script.google.com/macros/s/AKfycbzfX8f3-CcY6X-nu7Sm545Xk5ysHRrWvwqWxBV0-YGX3Ss3ShJM6r9eDnXcoBNwBULhxw/exec";
-const DRIVE_FOLDER_ID = "10ogmnlqLreB_PzSwyuQGtKzO759NVF3M";
-
-const TRIP_START = "2026-08-30";
-const TRIP_END   = "2026-09-26";
-const BUDGET_JQ_TY = 500000;
-
-const PEOPLE = ["家齊", "亭穎", "媽媽"];
-const WHERE = ["臺灣", "挪威", "冰島", "杜拜", "英國"];
-const EXP_CATEGORIES = [
-  "早餐","午餐","晚餐","零食",
-  "住宿",
-  "交通（機票）","交通（租車）","交通（停車費）","交通（油錢）","交通（電費）",
-  "紀念品","門票","其他"
-];
-const PAY = ["現金","信用卡－國泰","信用卡–永豐","信用卡–元大","信用卡-永豐","信用卡-元大","信用卡-國泰"];
-const IT_CATEGORIES = ["景點","飲食","交通","住宿","其他"];
-
-const LS = {
-  itinerary: "tripapp_itinerary_v10",
-  expenses:  "tripapp_expenses_v10",
-  fx:        "tripapp_fx_global_v1",
-  outbox:    "tripapp_outbox_v10",
-  ui:        "tripapp_ui_v7"
-};
-
-const $ = (q) => document.querySelector(q);
-const $$ = (q) => Array.from(document.querySelectorAll(q));
-
-function load(key, fallback){
-  try { return JSON.parse(localStorage.getItem(key) || "") ?? fallback; }
-  catch { return fallback; }
-}
-function save(key, value){ localStorage.setItem(key, JSON.stringify(value)); }
-
-function escapeHtml(s){
-  return String(s ?? "")
-    .replaceAll("&","&amp;")
-    .replaceAll("<","&lt;")
-    .replaceAll(">","&gt;")
-    .replaceAll('"',"&quot;")
-    .replaceAll("'","&#039;");
-}
-function fmtMoney(n){ return Number(n||0).toLocaleString("zh-Hant-TW"); }
-function clamp(n,min,max){ return Math.max(min, Math.min(max,n)); }
-function uid(prefix="X"){
-  const t = new Date().toISOString().replace(/[:.]/g,"-");
-  const r = Math.random().toString(16).slice(2,8);
-  return `${prefix}-${t}-${r}`;
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    // 確保你的 sw.js 與這些檔案放在同一層目錄
+    navigator.serviceWorker.register('./sw.js').catch(()=>{});
+  });
 }
 
-function parseLocalDate(yyyy_mm_dd){
-  const [y,m,d] = String(yyyy_mm_dd).split("-").map(Number);
-  return new Date(y, m-1, d, 12, 0, 0);
-}
-function fmtDate(d){
-  const y = d.getFullYear();
-  const m = String(d.getMonth()+1).padStart(2,"0");
-  const day = String(d.getDate()).padStart(2,"0");
-  return `${y}-${m}-${day}`;
-}
-function weekdayZh(d){ return ["日","一","二","三","四","五","六"][d.getDay()]; }
-function daysBetween(a,b){
-  const ms = (parseLocalDate(fmtDate(b)).getTime() - parseLocalDate(fmtDate(a)).getTime());
-  return Math.round(ms/86400000);
-}
-function normalizeDateKey(v){
-  if (!v) return "";
-  if (typeof v === "string"){
-    const m = v.match(/^(\d{4}-\d{2}-\d{2})/);
-    if (m) return m[1];
-    const md = v.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-    if (md){
-      const mm = String(md[1]).padStart(2,"0");
-      const dd = String(md[2]).padStart(2,"0");
-      return `${md[3]}-${mm}-${dd}`;
-    }
-    const t = Date.parse(v);
-    if (!Number.isNaN(t)) return fmtDate(new Date(t));
-    return v;
+async function callApi(action, data = null, method = 'GET') {
+  const options = { method };
+  if (method === 'POST') {
+    options.body = JSON.stringify({ action, data });
+    options.headers = { 'Content-Type': 'text/plain;charset=utf-8' };
   }
-  if (Object.prototype.toString.call(v) === "[object Date]" && !isNaN(v.getTime())) return fmtDate(v);
-  const t = Date.parse(String(v));
-  if (!Number.isNaN(t)) return fmtDate(new Date(t));
-  return String(v);
-}
-function normalizeTime(v){
-  if (v === null || v === undefined || v === "") return "";
-  if (Object.prototype.toString.call(v) === "[object Date]" && !isNaN(v.getTime())){
-    const hh = String(v.getHours()).padStart(2,"0");
-    const mm = String(v.getMinutes()).padStart(2,"0");
-    return `${hh}:${mm}`;
-  }
-  if (typeof v === "number" && Number.isFinite(v)){
-    const totalMin = Math.round(v * 24 * 60);
-    const hh = String(Math.floor(totalMin/60) % 24).padStart(2,"0");
-    const mm = String(totalMin % 60).padStart(2,"0");
-    return `${hh}:${mm}`;
-  }
-  const s = String(v).trim();
-  const hm = s.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
-  if (hm){
-    const hh = String(Number(hm[1])).padStart(2,"0");
-    const mm = String(Number(hm[2])).padStart(2,"0");
-    return `${hh}:${mm}`;
-  }
-  if (/^\d{4}-\d{2}-\d{2}T/.test(s)){
-    const d = new Date(s);
-    if (!isNaN(d.getTime())){
-      const useUtc = /Z$/.test(s);
-      const hh = String(useUtc ? d.getUTCHours() : d.getHours()).padStart(2,"0");
-      const mm = String(useUtc ? d.getUTCMinutes() : d.getMinutes()).padStart(2,"0");
-      return `${hh}:${mm}`;
-    }
-  }
-  const n = Number(s);
-  if (Number.isFinite(n) && n >= 0 && n <= 1){
-    const totalMin = Math.round(n * 24 * 60);
-    const hh = String(Math.floor(totalMin/60) % 24).padStart(2,"0");
-    const mm = String(totalMin % 60).padStart(2,"0");
-    return `${hh}:${mm}`;
-  }
-  return s;
-}
-function stripHtml(html){
-  const div = document.createElement("div");
-  div.innerHTML = html || "";
-  return (div.textContent || "").trim();
-}
-function confirmDelete(title){
-  const a = prompt(`請輸入「刪除」以確認刪除：\n${title}`);
-  return (a || "").trim() === "刪除";
-}
+  let url = YOUR_GAS_URL;
+  if (method === 'GET') url += `?action=${action}`;
 
-/* category helpers */
-function itCardClass(cat){
-  return ({ "景點":"it-sight","飲食":"it-food","交通":"it-traffic","住宿":"it-stay","其他":"it-other" })[cat] || "it-other";
-}
-function itTagClass(cat){
-  return ({ "景點":"tag-it-sight","飲食":"tag-it-food","交通":"tag-it-traffic","住宿":"tag-it-stay","其他":"tag-it-other" })[cat] || "tag-it-other";
-}
-function expTagClassExact(cat){
-  switch(cat){
-    case "早餐": return "tag-exp-breakfast";
-    case "午餐": return "tag-exp-lunch";
-    case "晚餐": return "tag-exp-dinner";
-    case "零食": return "tag-exp-snack";
-    case "住宿": return "tag-exp-stay";
-    case "交通（機票）": return "tag-exp-flight";
-    case "交通（租車）": return "tag-exp-rent";
-    case "交通（停車費）": return "tag-exp-parking";
-    case "交通（油錢）": return "tag-exp-fuel";
-    case "交通（電費）": return "tag-exp-charge";
-    case "紀念品": return "tag-exp-souvenir";
-    case "門票": return "tag-exp-ticket";
-    default: return "tag-exp-other";
+  try {
+    const response = await fetch(url, options);
+    const ct = response.headers.get("content-type");
+    if (ct && ct.indexOf("application/json") === -1) throw new Error("Server Response Not JSON");
+    if (!response.ok) throw new Error("Network error");
+    return await response.json();
+  } catch(e) {
+    console.warn("API Fail:", e);
+    return null; 
   }
 }
 
-/* FX */
-function getFx(){
-  const fx = load(LS.fx, { NOK:1, ISK:1, EUR:1, GBP:1, AED:1 });
-  return { ...{NOK:1, ISK:1, EUR:1, GBP:1, AED:1}, ...fx };
-}
-function setFx(next){ save(LS.fx, next); }
-function normalizeCurrency(c){
-  const s = String(c || "TWD").toUpperCase().trim();
-  if (s === "NTD") return "TWD";
-  return s;
-}
-function toTwd(e, fx){
-  const override = Number(e.twdOverride);
-  if (Number.isFinite(override) && override > 0) return Math.round(override);
-  const amt = Number(e.amount || 0);
-  const cur = normalizeCurrency(e.currency || "TWD");
-  if (cur === "TWD") return Math.round(amt);
-  return Math.round(amt * Number(fx[cur] || 1));
-}
-function sumTwd(items, fx){
-  return Math.round(items.reduce((s,e)=>s + toTwd(e, fx), 0));
-}
-function normalizePayment(p){
-  let s = String(p||"").trim();
-  s = s.replaceAll("－","-").replaceAll("–","-");
-  if (s === "信用卡-永豐") return "信用卡–永豐";
-  if (s === "信用卡-元大") return "信用卡–元大";
-  if (s === "信用卡-國泰") return "信用卡－國泰";
-  return p;
-}
+const { createApp, ref, computed, onMounted, nextTick, watch, onBeforeUnmount } = Vue;
 
-/* ===== DOM ===== */
-const elTripDay = $("#tripDayLabel");
-const elToday = $("#todayLabel");
-const elSync = $("#syncStatus");
+createApp({
+  setup() {
+    const tab = ref('itinerary');
+    const isLoading = ref(true);
+    const isFirstLoad = ref(true);
+    const isPullRefreshing = ref(false);
+    const isOnline = ref(navigator.onLine);
+    
+    // Status Flags
+    const isSyncing = ref(false);
 
-const tabButtons = $$(".tab");
-const pageIt = $("#page-itinerary");
-const pageEx = $("#page-expenses");
-const pageAn = $("#page-analysis");
+    // Sync Queue
+    const syncQueue = ref([]);
+    
+    const members = ref([]);
+    const expenses = ref([]);
+    const itinerary = ref([]);
+    const rates = ref({});
 
-const dateStrip = $("#dateStrip");
-const selectedDateLabel = $("#selectedDateLabel");
-const selectedDayIndexLabel = $("#selectedDayIndexLabel");
+    const dateContainer = ref(null);
+    const scrollContainer = ref(null);
 
-const itineraryList = $("#itineraryList");
-const btnAddItineraryBottom = $("#btnAddItineraryBottom"); // ✅ only bottom
+    const todayDate = ref('');
+    const todayWeekday = ref('');
 
-const modalItinerary = $("#modalItinerary");
-const itModalTitle = $("#itModalTitle");
-const btnCloseItinerary = $("#btnCloseItinerary");
-const btnCancelIt = $("#btnCancelIt");
-const btnSaveIt = $("#btnSaveIt");
-const itStart = $("#itStart");
-const itEnd = $("#itEnd");
-const itCatChooser = $("#itCatChooser");
-const itTitle = $("#itTitle");
-const itAddress = $("#itAddress");
-const itNote = $("#itNote");
-const itImage = $("#itImage");
-const itImagePreview = $("#itImagePreview");
-const btnOpenMap = $("#btnOpenMap");
-const btnLinkTitle = $("#btnLinkTitle");
-const btnLinkNote = $("#btnLinkNote");
-
-/* expenses input */
-const expWho = $("#expWho");
-const expWhere = $("#expWhere");
-const expCategory = $("#expCategory");
-const expPay = $("#expPay");
-const expCurrency = $("#expCurrency");
-const expAmount = $("#expAmount");
-const expTitle = $("#expTitle");
-const btnAddExpense = $("#btnAddExpense");
-const btnSplitAll = $("#btnSplitAll");
-const splitChooser = $("#splitChooser");
-
-/* analysis */
-const btnFx = $("#btnFx");
-const btnFilter = $("#btnFilter");
-const budgetRemain = $("#budgetRemain");
-const budgetSpent = $("#budgetSpent");
-const momLine = $("#momLine");
-const budgetBar = $("#budgetBar");
-const pieCanvas = $("#pie");
-const analysisExpenseList = $("#analysisExpenseList");
-const settlement = $("#settlement");
-const filterChips = $("#filterChips");
-
-const modalFilter = $("#modalFilter");
-const btnCloseFilter = $("#btnCloseFilter");
-const btnClearFilter = $("#btnClearFilter");
-const btnApplyFilter = $("#btnApplyFilter");
-const filterWhoBox = $('[data-filter-group="who"]');
-const filterWhereBox = $('[data-filter-group="where"]');
-const filterCategoryBox = $('[data-filter-group="category"]');
-const filterPayBox = $('[data-filter-group="pay"]');
-
-/* viewer */
-const modalViewer = $("#modalViewer");
-const btnCloseViewer = $("#btnCloseViewer");
-const btnResetViewer = $("#btnResetViewer");
-const viewerStage = $("#viewerStage");
-const viewerImg = $("#viewerImg");
-
-/* ===== State ===== */
-const tripStartD = parseLocalDate(TRIP_START);
-const tripEndD = parseLocalDate(TRIP_END);
-const tripDays = daysBetween(tripStartD, tripEndD) + 1;
-function tripDayIndexFor(d){ return daysBetween(tripStartD, d) + 1; }
-
-let state = {
-  tab: "itinerary",
-  selectedDate: TRIP_START,
-  itDraftCat: IT_CATEGORIES[0],
-  itDraftImageDataUrl: "",
-  itDraftDriveFileId: "",
-  itDraftDriveUrl: "",
-  itDraftLink: "",
-  editingItId: null,
-  filter: { who:new Set(), where:new Set(), category:new Set(), pay:new Set() },
-  pending: { Expenses:new Set(), Itinerary:new Set() },
-  pieChart: null,
-  viewer: { scale:1, tx:0, ty:0 }
-};
-
-/* ===== Sync badge ===== */
-function setSyncBadge(mode, text){
-  const dotClass = { ok:"dot-ok", sync:"dot-sync", offline:"dot-offline", warn:"dot-wait" }[mode] || "dot-ok";
-  elSync.innerHTML = `<span class="dot ${dotClass}"></span><span class="text-sm">${escapeHtml(text)}</span>`;
-}
-function computePendingFromOutbox(){
-  const box = load(LS.outbox, []);
-  const exp = new Set();
-  const it = new Set();
-  for (const op of box){
-    if (String(op.op||"").toLowerCase() !== "upsert") continue;
-    const id = String(op?.row?.ID || "").trim();
-    if (!id) continue;
-    if (op.table === "Expenses") exp.add(id);
-    if (op.table === "Itinerary") it.add(id);
-  }
-  state.pending.Expenses = exp;
-  state.pending.Itinerary = it;
-}
-function updateSyncBadge(){
-  computePendingFromOutbox();
-  const hasPending = load(LS.outbox, []).length > 0;
-  if (!navigator.onLine){
-    setSyncBadge(hasPending ? "warn" : "offline", hasPending ? "待上傳" : "離線");
-    return;
-  }
-  setSyncBadge("ok", "已同步");
-}
-
-/* ===== Header ===== */
-function renderHeader(){
-  const now = new Date();
-  elToday.textContent = `${now.getMonth()+1}/${now.getDate()}（${weekdayZh(now)}）`;
-
-  const todayLocal = parseLocalDate(fmtDate(now));
-  if (todayLocal < tripStartD) elTripDay.textContent = `倒數 ${daysBetween(todayLocal, tripStartD)} 日`;
-  else if (todayLocal > tripEndD) elTripDay.textContent = `旅行已結束`;
-  else elTripDay.textContent = `第 ${tripDayIndexFor(todayLocal)} 日`;
-}
-
-/* ===== Date strip ===== */
-function buildDateStrip(){
-  dateStrip.innerHTML = "";
-  for (let i=0;i<tripDays;i++){
-    const d = new Date(tripStartD.getTime() + i*86400000);
-    const key = fmtDate(d);
-    const btn = document.createElement("button");
-    btn.className = "date-chip";
-    btn.dataset.date = key;
-    btn.textContent = `${d.getMonth()+1}/${d.getDate()} ${weekdayZh(d)}`;
-    btn.addEventListener("click", () => setSelectedDate(key, true));
-    dateStrip.appendChild(btn);
-  }
-  setSelectedDate(state.selectedDate, true);
-}
-function setSelectedDate(key, scroll){
-  state.selectedDate = normalizeDateKey(key);
-  $$(".date-chip").forEach(b => b.classList.toggle("active", b.dataset.date === state.selectedDate));
-
-  const d = parseLocalDate(state.selectedDate);
-  selectedDateLabel.textContent = `${d.getMonth()+1}/${d.getDate()}（${weekdayZh(d)}）`;
-  selectedDayIndexLabel.textContent = `Day ${tripDayIndexFor(d)}`;
-
-  if (scroll){
-    const active = $(`.date-chip[data-date="${state.selectedDate}"]`);
-    active?.scrollIntoView({ behavior:"smooth", inline:"center", block:"nearest" });
-  }
-  renderItinerary();
-}
-function shiftDate(delta){
-  const d = parseLocalDate(state.selectedDate);
-  d.setDate(d.getDate() + delta);
-  const next = fmtDate(d);
-  if (next < TRIP_START || next > TRIP_END) return;
-  setSelectedDate(next, true);
-}
-
-/* ===== Tabs ===== */
-const TAB_ORDER = ["itinerary","expenses","analysis"];
-function setTab(tab){
-  state.tab = tab;
-  tabButtons.forEach(b => b.classList.toggle("active", b.dataset.tab === tab));
-  pageIt.classList.toggle("hidden", tab !== "itinerary");
-  pageEx.classList.toggle("hidden", tab !== "expenses");
-  pageAn.classList.toggle("hidden", tab !== "analysis");
-  save(LS.ui, { ...(load(LS.ui, {})), tab });
-  if (tab === "analysis") renderAnalysis();
-}
-function shiftTab(delta){
-  const idx = TAB_ORDER.indexOf(state.tab);
-  const next = clamp(idx + delta, 0, TAB_ORDER.length-1);
-  if (next === idx) return;
-  setTab(TAB_ORDER[next]);
-}
-
-/* ===== Itinerary ===== */
-function buildItCatChooser(){
-  itCatChooser.innerHTML = "";
-  IT_CATEGORIES.forEach((cat, idx) => {
-    const b = document.createElement("button");
-    b.className = `tag ${itTagClass(cat)}`;
-    b.textContent = cat;
-    b.addEventListener("click", () => {
-      state.itDraftCat = cat;
-      Array.from(itCatChooser.querySelectorAll(".tag"))
-        .forEach(x => x.classList.toggle("active", x.textContent === cat));
+    // Image Viewer State & Gesture Logic
+    const showImgViewer = ref(false);
+    const viewingImg = ref('');
+    const imgViewerEl = ref(null);
+    const imgGesture = ref({ 
+        startX: 0, startY: 0, 
+        currentX: 0, currentY: 0, 
+        scale: 1, 
+        isPulling: false,
+        isZooming: false,
+        startDistance: 0
     });
-    itCatChooser.appendChild(b);
-    if (idx===0) b.classList.add("active");
-  });
-  state.itDraftCat = IT_CATEGORIES[0];
-}
 
-function openItModal(editId=null){
-  state.editingItId = editId;
-  modalItinerary.classList.remove("hidden");
-
-  state.itDraftImageDataUrl = "";
-  state.itDraftDriveFileId = "";
-  state.itDraftDriveUrl = "";
-  state.itDraftLink = "";
-  if (itImage) itImage.value = "";
-  itImagePreview.innerHTML = "";
-
-  if (!editId){
-    itModalTitle.textContent = "新增行程";
-    btnSaveIt.textContent = "新增行程";
-    itStart.value = "09:00";
-    itEnd.value = "10:00";
-    state.itDraftCat = IT_CATEGORIES[0];
-    Array.from(itCatChooser.querySelectorAll(".tag")).forEach((x,i)=>x.classList.toggle("active", i===0));
-    itTitle.innerHTML = "";
-    itAddress.value = "";
-    itNote.innerHTML = "";
-    return;
-  }
-
-  const all = load(LS.itinerary, []);
-  const it = all.find(x => x.id === editId);
-  if (!it) return;
-
-  itModalTitle.textContent = "編輯行程";
-  btnSaveIt.textContent = "儲存變更";
-
-  itStart.value = it.start || "";
-  itEnd.value = it.end || "";
-  state.itDraftCat = it.category || IT_CATEGORIES[0];
-  Array.from(itCatChooser.querySelectorAll(".tag"))
-    .forEach(x => x.classList.toggle("active", x.textContent === state.itDraftCat));
-
-  itTitle.innerHTML = it.title || "";
-  itAddress.value = it.location || "";
-  state.itDraftLink = it.link || "";
-  itNote.innerHTML = it.note || "";
-
-  state.itDraftDriveFileId = it.imageId || "";
-  state.itDraftDriveUrl = it.image || "";
-  state.itDraftImageDataUrl = it.imageDataUrl || "";
-
-  const imgSrc = state.itDraftDriveUrl || state.itDraftImageDataUrl;
-  if (imgSrc) itImagePreview.innerHTML = `<img class="rounded-2xl border border-white/10" src="${imgSrc}" alt="preview" />`;
-}
-function closeItModal(){ modalItinerary.classList.add("hidden"); }
-
-function toSheetItinerary(it){
-  return {
-    Date: normalizeDateKey(it.date),
-    StatTime: it.start || "",
-    EndTime: it.end || "",
-    Category: it.category || "",
-    Title: it.title || "",
-    Location: it.location || "",
-    Link: it.link || "",
-    Note: it.note || "",
-    Image: it.image || "",
-    ImageID: it.imageId || "",
-    ID: it.id
-  };
-}
-
-function saveItinerary(){
-  const start = normalizeTime(itStart.value || "");
-  const end = normalizeTime(itEnd.value || "");
-  const category = state.itDraftCat;
-  const titleHtml = (itTitle.innerHTML || "").trim();
-  const location = (itAddress.value || "").trim();
-  const noteHtml = (itNote.innerHTML || "").trim();
-
-  if (!titleHtml) return alert("請輸入標題");
-
-  const driveFileId = state.itDraftDriveFileId || "";
-  const driveUrl = state.itDraftDriveUrl || "";
-  const imageDataUrl = state.itDraftImageDataUrl || "";
-
-  const all = load(LS.itinerary, []);
-  const base = {
-    date: state.selectedDate,
-    start, end, category,
-    title: titleHtml,
-    location,
-    link: state.itDraftLink || "",
-    note: noteHtml,
-    image: driveUrl || "",
-    imageId: driveFileId || "",
-    imageDataUrl
-  };
-
-  let savedRow = null;
-  if (!state.editingItId){
-    savedRow = { id: uid("IT"), ...base };
-    all.push(savedRow);
-  } else {
-    const idx = all.findIndex(x => x.id === state.editingItId);
-    if (idx >= 0){
-      all[idx] = { ...all[idx], ...base };
-      savedRow = all[idx];
-    }
-  }
-
-  save(LS.itinerary, all);
-  if (savedRow){
-    queueOutbox({ op:"upsert", table:"Itinerary", row: toSheetItinerary(savedRow) });
-  }
-  closeItModal();
-  renderItinerary();
-}
-
-function deleteItinerary(id){
-  const all = load(LS.itinerary, []);
-  const it = all.find(x => x.id === id);
-  if (!it) return;
-  if (!confirmDelete(`行程：${stripHtml(it.title)}`)) return;
-
-  const idx = all.findIndex(x => x.id === id);
-  all.splice(idx, 1);
-  save(LS.itinerary, all);
-
-  queueOutbox({ op:"delete", table:"Itinerary", key:{ ID:id }});
-  renderItinerary();
-}
-
-function renderItinerary(){
-  updateSyncBadge();
-
-  const all = load(LS.itinerary, []);
-  const items = all
-    .map(x => ({
-      ...x,
-      date: normalizeDateKey(x.date),
-      start: normalizeTime(x.start),
-      end: normalizeTime(x.end)
-    }))
-    .filter(x => x.date === state.selectedDate)
-    .sort((a,b) => (a.start||"").localeCompare(b.start||""));
-
-  itineraryList.innerHTML = "";
-
-  if (!items.length){
-    itineraryList.innerHTML = `<div class="card p-4 text-sm" style="color: rgba(7,19,31,.62);">今天還沒有行程。可以按「新增行程」。</div>`;
-    return;
-  }
-
-  items.forEach(it => {
-    const time = (it.start || it.end) ? `${it.start||""}–${it.end||""}` : "";
-    const imgSrc = it.image || it.imageDataUrl || "";
-    const pendingOffline = (!navigator.onLine) && state.pending.Itinerary.has(it.id);
-
-    const card = document.createElement("div");
-    card.className = `card p-4 it-card ${itCardClass(it.category)}`;
-    if (pendingOffline) card.classList.add("pending-card");
-
-    card.innerHTML = `
-      <div class="flex items-start justify-between gap-3">
-        <div class="min-w-0">
-          <div class="flex items-center gap-2 flex-wrap">
-            <span class="tag ${itTagClass(it.category)}">${escapeHtml(it.category)}</span>
-            <span class="text-xs font-extrabold" style="color: rgba(7,19,31,.72);">${escapeHtml(time)}</span>
-            ${pendingOffline ? `<span class="text-xs pending-badge">待上傳</span>` : ``}
-          </div>
-          <div class="mt-2 text-base font-semibold leading-snug break-words" style="color: rgba(7,19,31,.94);">${it.title || ""}</div>
-          ${it.location ? `<div class="mt-2 text-xs break-words" style="color: rgba(7,19,31,.66);">${escapeHtml(it.location)}</div>` : ""}
-          ${it.link ? `<div class="mt-2 text-xs"><a href="${escapeHtml(it.link)}" target="_blank" rel="noopener" class="link-soft">開啟連結</a></div>` : ""}
-          ${it.note ? `<div class="mt-2 text-sm break-words" style="color: rgba(7,19,31,.82);">${it.note}</div>` : ""}
-          ${imgSrc ? `<div class="mt-3"><img class="rounded-2xl border border-white/10 cursor-pointer" data-view-src="${imgSrc}" src="${imgSrc}" alt="img"/></div>` : ""}
-        </div>
-        <div class="shrink-0 flex flex-col gap-2">
-          <button class="btn btn-ghost text-sm" data-act="edit">編輯</button>
-          <button class="btn btn-ghost text-sm" data-act="del">刪除</button>
-        </div>
-      </div>
-    `;
-
-    card.querySelector('[data-act="edit"]').addEventListener("click", () => openItModal(it.id));
-    card.querySelector('[data-act="del"]').addEventListener("click", () => deleteItinerary(it.id));
-
-    const imgEl = card.querySelector('img[data-view-src]');
-    if (imgEl) imgEl.addEventListener("click", () => openViewer(imgEl.dataset.viewSrc));
-
-    itineraryList.appendChild(card);
-  });
-}
-
-/* ===== Expenses: defaults none selected ===== */
-function buildSplitChooser(){
-  splitChooser.innerHTML = "";
-  PEOPLE.forEach(p => {
-    const b = document.createElement("button");
-    b.className = "tag";
-    b.textContent = p;
-    b.dataset.value = p;
-    b.addEventListener("click", () => b.classList.toggle("active"));
-    splitChooser.appendChild(b);
-  });
-
-  // ✅ do NOT auto-select based on payer
-  expWho.addEventListener("change", () => { /* no default */ });
-}
-function clearExpenseDefaults(){
-  // payer/location/category/pay/currency keep whatever the select has
-  // but split must be none
-  $$("#splitChooser .tag").forEach(b => b.classList.remove("active"));
-}
-function getSplitSelected(){
-  return $$("#splitChooser .tag.active").map(b => b.dataset.value);
-}
-
-/* Sheet mapping:
-   Category = TWD converted
-   Item = expense category
-   Note = title */
-function toSheetExpense(e){
-  return {
-    Date: normalizeDateKey(e.date),
-    Payer: e.payer,
-    Location: e.location,
-    Category: e.twdOverride ?? "",
-    Item: e.category,
-    Payment: e.payment,
-    Currency: normalizeCurrency(e.currency),
-    Amount: e.amount,
-    Involved: e.involved,
-    Note: e.item,
-    ID: e.id
-  };
-}
-function addExpense(){
-  const who = expWho.value || "";
-  const where = expWhere.value || "";
-  const category = expCategory.value || "";
-  const pay = expPay.value || "";
-  const currency = normalizeCurrency(expCurrency.value || "TWD");
-  const amount = Number(expAmount.value);
-  const title = (expTitle.value || "").trim();
-  const split = getSplitSelected();
-
-  if (!who) return alert("請選擇付款人");
-  if (!where) return alert("請選擇消費地點");
-  if (!category) return alert("請選擇消費類別");
-  if (!pay) return alert("請選擇付款方式");
-  if (!title) return alert("請輸入消費名稱");
-  if (!Number.isFinite(amount) || amount <= 0) return alert("請輸入正確金額");
-  if (!split.length) return alert("請選擇分攤人員");
-
-  const fx = getFx();
-  const twd = (currency === "TWD") ? Math.round(amount) : Math.round(amount * Number(fx[currency] || 1));
-
-  const row = {
-    id: uid("E"),
-    date: state.selectedDate,
-    payer: who,
-    location: where,
-    category,
-    item: title,
-    payment: pay,
-    currency,
-    amount,
-    twdOverride: twd,
-    involved: split.join(","),
-  };
-
-  const all = load(LS.expenses, []);
-  all.push(row);
-  save(LS.expenses, all);
-
-  queueOutbox({ op:"upsert", table:"Expenses", row: toSheetExpense(row) });
-
-  expAmount.value = "";
-  expTitle.value = "";
-  clearExpenseDefaults();
-
-  updateSyncBadge();
-}
-
-/* ===== Analysis (keep v7 logic, omitted here for brevity) =====
-   → 你把 v7 的 renderAnalysis/renderPie/settlement/filter/fx/edit modal 等維持不變即可。
-   (我沒有動到那段核心邏輯，只是這版聚焦在你提出的手勢/同步/預設值)
-*/
-
-/* ===== Outbox / sync / pull ===== */
-function queueOutbox(op){
-  const box = load(LS.outbox, []);
-  box.push(op);
-  save(LS.outbox, box);
-  updateSyncBadge();
-}
-
-async function postJsonNoPreflight(url, payload){
-  const res = await fetch(url, {
-    method:"POST",
-    headers:{ "Content-Type":"text/plain;charset=utf-8" },
-    body: JSON.stringify(payload)
-  });
-  return res.json();
-}
-async function pullAll(){
-  const url = `${GAS_URL}?action=pull`;
-  const res = await fetch(url).then(r => r.json());
-  if (!res?.ok || !Array.isArray(res.rows)) throw new Error("pull failed");
-  mergePulled(res.rows);
-}
-async function syncOutbox(){
-  if (!navigator.onLine) return;
-  const box = load(LS.outbox, []);
-  if (!box.length) return;
-  setSyncBadge("sync", "同步中");
-  const payload = { action:"sync", ops: box };
-  const res = await postJsonNoPreflight(GAS_URL, payload);
-  if (!res?.ok) throw new Error(res?.error || "sync failed");
-  save(LS.outbox, []);
-}
-
-/* ✅ Pull-to-refresh = manual sync:
-   1) sync outbox
-   2) pull latest
-   3) rerender */
-async function manualSyncViaPullToRefresh(){
-  if (!navigator.onLine){
-    updateSyncBadge();
-    throw new Error("offline");
-  }
-  await syncOutbox();
-  await pullAll();
-  updateSyncBadge();
-}
-
-function mergePulled(rows){
-  const exp = [];
-  const it = [];
-
-  for (const item of rows){
-    const table = item.table;
-    const r = item.row || {};
-
-    if (table === "Expenses"){
-      const twdOverride = Number(r.Category);
-      const categoryFromItem = String(r.Item || "").trim();
-      const category = EXP_CATEGORIES.includes(categoryFromItem) ? categoryFromItem : "其他";
-
-      const currency = normalizeCurrency(r.Currency ?? "TWD");
-      const amount = Number(r.Amount);
-
-      exp.push({
-        id: String(r.ID || ""),
-        date: normalizeDateKey(r.Date || ""),
-        payer: String(r.Payer || ""),
-        location: String(r.Location || ""),
-        category,
-        item: String(r.Note || ""), // ✅ title
-        payment: normalizePayment(String(r.Payment || "")) || "現金",
-        currency,
-        amount: Number.isFinite(amount) ? amount : 0,
-        twdOverride: Number.isFinite(twdOverride) ? twdOverride : null,
-        involved: String(r.Involved || ""),
-      });
-    }
-
-    if (table === "Itinerary"){
-      it.push({
-        id: String(r.ID || ""),
-        date: normalizeDateKey(r.Date || ""),
-        start: normalizeTime(r.StatTime || ""),
-        end: normalizeTime(r.EndTime || ""),
-        category: String(r.Category || ""),
-        title: String(r.Title || ""),
-        location: String(r.Location || ""),
-        link: String(r.Link || ""),
-        note: String(r.Note || ""),
-        image: String(r.Image || ""),
-        imageId: String(r.ImageID || ""),
-        imageDataUrl: ""
-      });
-    }
-  }
-
-  save(LS.expenses, exp.filter(x=>x.id));
-  save(LS.itinerary, it.filter(x=>x.id));
-}
-
-/* ===== Pull-to-refresh (calls manualSyncViaPullToRefresh) ===== */
-function setupPullToRefresh(containers){
-  let ind = $("#ptrIndicator");
-  if (!ind){
-    ind = document.createElement("div");
-    ind.id = "ptrIndicator";
-    ind.style.position = "fixed";
-    ind.style.left = "0";
-    ind.style.right = "0";
-    ind.style.top = "0";
-    ind.style.zIndex = "9999";
-    ind.style.padding = "10px 12px";
-    ind.style.textAlign = "center";
-    ind.style.fontSize = "12px";
-    ind.style.fontWeight = "900";
-    ind.style.color = "rgba(7,19,31,.76)";
-    ind.style.background = "rgba(255,255,255,.88)";
-    ind.style.backdropFilter = "blur(16px)";
-    ind.style.webkitBackdropFilter = "blur(16px)";
-    ind.style.borderBottom = "1px solid rgba(10,25,45,.12)";
-    ind.style.transform = "translateY(-120%)";
-    ind.style.transition = "transform 180ms ease";
-    ind.textContent = "下拉重新整理";
-    document.body.appendChild(ind);
-  }
-
-  const THRESH = 70;
-  containers.forEach(el => {
-    if (!el) return;
-    let pulling=false, startY=0, dist=0;
-
-    const isAtTop = () => (window.scrollY <= 0);
-
-    el.addEventListener("touchstart", (e) => {
-      if (e.touches.length !== 1) return;
-      if (!isAtTop()) return;
-      pulling = true;
-      startY = e.touches[0].clientY;
-      dist = 0;
-    }, { passive:true });
-
-    el.addEventListener("touchmove", (e) => {
-      if (!pulling) return;
-      const y = e.touches[0].clientY;
-      dist = Math.max(0, y - startY);
-      if (dist > 8) e.preventDefault();
-      const pct = clamp(dist/THRESH, 0, 1);
-      ind.textContent = (dist >= THRESH) ? "放開即可同步" : "下拉同步";
-      ind.style.transform = `translateY(${(-120 + pct*120)}%)`;
-    }, { passive:false });
-
-    el.addEventListener("touchend", async () => {
-      if (!pulling) return;
-      pulling = false;
-
-      if (dist >= THRESH){
-        ind.textContent = "同步中…";
-        ind.style.transform = "translateY(0%)";
-        try{
-          await manualSyncViaPullToRefresh();
-          renderAll();
-          ind.textContent = "已同步";
-          setTimeout(()=>ind.style.transform="translateY(-120%)", 500);
-        }catch{
-          ind.textContent = navigator.onLine ? "同步失敗" : "離線，無法同步";
-          setTimeout(()=>ind.style.transform="translateY(-120%)", 800);
-        }
-      } else {
-        ind.style.transform = "translateY(-120%)";
-      }
-      dist = 0;
-    }, { passive:true });
-  });
-}
-
-/* ===== Swipe gestures ===== */
-function setupGestures(){
-  // 1) itinerary swipe left/right to change date (on page-itinerary only)
-  // 2) edge swipe (from screen edge) to change tab
-  const EDGE = 24;
-  const MIN_X = 55;
-  const MAX_Y = 45;
-
-  let sx=0, sy=0, active=false;
-  let edgeMode = null; // "left" | "right" | null
-
-  const onStart = (e) => {
-    if (e.touches.length !== 1) return;
-    const t = e.touches[0];
-    sx = t.clientX;
-    sy = t.clientY;
-    active = true;
-    edgeMode = (sx <= EDGE) ? "left" : (sx >= window.innerWidth - EDGE) ? "right" : null;
-  };
-
-  const onMove = (e) => {
-    if (!active) return;
-    const t = e.touches[0];
-    const dx = t.clientX - sx;
-    const dy = t.clientY - sy;
-    // don't block scroll unless clear horizontal gesture
-    if (Math.abs(dx) > 12 && Math.abs(dy) < 12) e.preventDefault();
-  };
-
-  const onEnd = (e) => {
-    if (!active) return;
-    active = false;
-
-    const t = (e.changedTouches && e.changedTouches[0]) ? e.changedTouches[0] : null;
-    if (!t) return;
-    const dx = t.clientX - sx;
-    const dy = t.clientY - sy;
-
-    if (Math.abs(dy) > MAX_Y) return;
-    if (Math.abs(dx) < MIN_X) return;
-
-    // edge swipe => tab switch
-    if (edgeMode === "left" && dx > 0){
-      // swipe from left edge to right => previous tab
-      shiftTab(-1);
-      return;
-    }
-    if (edgeMode === "right" && dx < 0){
-      // swipe from right edge to left => next tab
-      shiftTab(+1);
-      return;
-    }
-
-    // non-edge swipe: on itinerary page => date switch
-    if (state.tab === "itinerary"){
-      if (dx < 0) shiftDate(+1);   // swipe left => next day
-      if (dx > 0) shiftDate(-1);   // swipe right => prev day
-    }
-  };
-
-  // attach to whole app, but edge check prevents conflict
-  document.addEventListener("touchstart", onStart, { passive:true });
-  document.addEventListener("touchmove", onMove, { passive:false });
-  document.addEventListener("touchend", onEnd, { passive:true });
-}
-
-/* ===== Viewer minimal (keep existing if you had) ===== */
-function setupViewer(){
-  if (!viewerStage || !viewerImg) return;
-  btnCloseViewer?.addEventListener("click", () => modalViewer.classList.add("hidden"));
-  btnResetViewer?.addEventListener("click", () => viewerImg.style.transform = "translate(0px,0px) scale(1)");
-}
-function openViewer(src){
-  viewerImg.src = src;
-  modalViewer.classList.remove("hidden");
-  viewerImg.style.transform = "translate(0px,0px) scale(1)";
-}
-
-/* ===== Events ===== */
-function attachEvents(){
-  tabButtons.forEach(b => b.addEventListener("click", () => setTab(b.dataset.tab)));
-
-  // ✅ only bottom add button
-  btnAddItineraryBottom?.addEventListener("click", () => openItModal());
-
-  btnCloseItinerary?.addEventListener("click", closeItModal);
-  btnCancelIt?.addEventListener("click", closeItModal);
-  btnSaveIt?.addEventListener("click", saveItinerary);
-
-  btnOpenMap?.addEventListener("click", () => {
-    const v = (itAddress.value || "").trim();
-    if (!v) return;
-    const isUrl = /^https?:\/\//i.test(v);
-    const target = isUrl ? v : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(v)}`;
-    window.open(target, "_blank");
-  });
-
-  btnLinkTitle?.addEventListener("click", () => insertLinkFromSelection(itTitle));
-  btnLinkNote?.addEventListener("click", () => insertLinkFromSelection(itNote));
-
-  itImage?.addEventListener("change", async () => {
-    const f = itImage.files?.[0];
-    if (!f) return;
-    const dataUrl = await fileToDataUrl(f);
-    state.itDraftImageDataUrl = dataUrl;
-    itImagePreview.innerHTML = `<img class="rounded-2xl border border-white/10" src="${dataUrl}" alt="preview" />`;
-
-    if (!navigator.onLine){
-      updateSyncBadge();
-      alert("目前離線：已先本地預覽。連線後可再次選取圖片上傳同步。");
-      return;
-    }
-
-    setSyncBadge("sync", "同步中");
-    try{
-      const res = await uploadImageToDrive(f, dataUrl);
-      state.itDraftDriveFileId = res.file_id;
-      state.itDraftDriveUrl = res.direct_view_url;
-      updateSyncBadge();
-    }catch{
-      updateSyncBadge();
-      alert("圖片上傳失敗：已保留本地預覽。可稍後再試。");
-    }
-  });
-
-  btnSplitAll?.addEventListener("click", () => {
-    const tags = $$("#splitChooser .tag");
-    const activeCount = tags.filter(t=>t.classList.contains("active")).length;
-    const makeActive = activeCount !== PEOPLE.length;
-    tags.forEach(t=>t.classList.toggle("active", makeActive));
-  });
-
-  btnAddExpense?.addEventListener("click", addExpense);
-
-  btnFilter?.addEventListener("click", () => modalFilter.classList.remove("hidden"));
-  btnCloseFilter?.addEventListener("click", () => modalFilter.classList.add("hidden"));
-  btnClearFilter?.addEventListener("click", () => { clearFilters(); /* renderAnalysis(); */ });
-  btnApplyFilter?.addEventListener("click", () => { modalFilter.classList.add("hidden"); /* renderAnalysis(); */ });
-
-  btnFx?.addEventListener("click", openFxModal);
-
-  window.addEventListener("online", () => updateSyncBadge());
-  window.addEventListener("offline", () => updateSyncBadge());
-}
-
-/* ===== Link insertion ===== */
-function insertLinkFromSelection(editableEl){
-  editableEl.focus();
-  const sel = window.getSelection();
-  if (!sel || sel.rangeCount === 0) return alert("請先反白要加連結的文字");
-  const url = prompt("輸入連結（https://...）");
-  if (!url) return;
-
-  const range = sel.getRangeAt(0);
-  if (range.collapsed) return alert("請先反白要加連結的文字");
-
-  const a = document.createElement("a");
-  a.href = url;
-  a.target = "_blank";
-  a.rel = "noopener noreferrer";
-  a.className = "link-soft";
-  a.appendChild(range.extractContents());
-  range.insertNode(a);
-
-  range.setStartAfter(a);
-  range.collapse(true);
-  sel.removeAllRanges();
-  sel.addRange(range);
-}
-
-/* ===== Upload image ===== */
-async function uploadImageToDrive(file, dataUrl){
-  const payload = {
-    action: "uploadImage",
-    folder_id: DRIVE_FOLDER_ID,
-    filename: file.name || `it_${Date.now()}.jpg`,
-    mime_type: file.type || "image/jpeg",
-    data_url: dataUrl
-  };
-  const res = await postJsonNoPreflight(GAS_URL, payload);
-  if (!res?.ok) throw new Error(res?.error || "uploadImage failed");
-  return res;
-}
-function fileToDataUrl(file){
-  return new Promise((resolve,reject)=>{
-    const fr = new FileReader();
-    fr.onload = () => resolve(String(fr.result));
-    fr.onerror = reject;
-    fr.readAsDataURL(file);
-  });
-}
-
-/* ===== Filters (minimal stubs; keep your old logic if needed) ===== */
-function clearFilters(){
-  state.filter.who.clear();
-  state.filter.where.clear();
-  state.filter.category.clear();
-  state.filter.pay.clear();
-}
-
-/* ===== FX modal (keep your v7 implementation) ===== */
-let fxModalEl = null;
-function openFxModal(){
-  // keep your v7 fx modal builder if already present
-  const fx = getFx();
-  if (!fxModalEl) fxModalEl = buildFxModal();
-  fxModalEl.querySelector("#fxNOK").value = fx.NOK;
-  fxModalEl.querySelector("#fxISK").value = fx.ISK;
-  fxModalEl.querySelector("#fxEUR").value = fx.EUR;
-  fxModalEl.querySelector("#fxGBP").value = fx.GBP;
-  fxModalEl.querySelector("#fxAED").value = fx.AED;
-  fxModalEl.classList.remove("hidden");
-}
-function buildFxModal(){
-  const wrap = document.createElement("div");
-  wrap.id = "modalFx";
-  wrap.className = "modal hidden";
-  wrap.innerHTML = `
-    <div class="modal-sheet">
-      <div class="modal-head">
-        <div class="text-base font-extrabold" style="color: rgba(7,19,31,.92);">匯率設定（固定全旅程）</div>
-        <button class="btn btn-ghost" id="btnFxClose">關閉</button>
-      </div>
-      <div class="modal-body">
-        <div class="text-xs font-extrabold" style="color: rgba(7,19,31,.56);">輸入「1 外幣 = ? TWD」</div>
-        <div class="grid grid-cols-2 gap-3 mt-4">
-          ${fxField("NOK")}
-          ${fxField("ISK")}
-          ${fxField("EUR")}
-          ${fxField("GBP")}
-          ${fxField("AED")}
-        </div>
-      </div>
-      <div class="modal-foot">
-        <button class="btn btn-outline" id="btnFxCancel">取消</button>
-        <button class="btn btn-primary" id="btnFxSave">儲存變更</button>
-      </div>
-    </div>
-  `;
-  document.body.appendChild(wrap);
-  wrap.querySelector("#btnFxClose").addEventListener("click", () => wrap.classList.add("hidden"));
-  wrap.querySelector("#btnFxCancel").addEventListener("click", () => wrap.classList.add("hidden"));
-  wrap.querySelector("#btnFxSave").addEventListener("click", () => {
-    const next = {
-      NOK: numOr1(wrap.querySelector("#fxNOK").value),
-      ISK: numOr1(wrap.querySelector("#fxISK").value),
-      EUR: numOr1(wrap.querySelector("#fxEUR").value),
-      GBP: numOr1(wrap.querySelector("#fxGBP").value),
-      AED: numOr1(wrap.querySelector("#fxAED").value),
+    // PULL DOWN + PINCH ZOOM LOGIC
+    const getDistance = (touches) => {
+        return Math.hypot(
+            touches[0].clientX - touches[1].clientX,
+            touches[0].clientY - touches[1].clientY
+        );
     };
-    setFx(next);
-    wrap.classList.add("hidden");
-  });
-  wrap.addEventListener("click", (e) => { if (e.target === wrap) wrap.classList.add("hidden"); });
-  return wrap;
-}
-function fxField(code){
-  return `
-    <label class="field">
-      <div class="field-label">${code} → TWD</div>
-      <input id="fx${code}" class="field-input" inputmode="decimal" placeholder="例如 3.2" />
-    </label>
-  `;
-}
-function numOr1(v){
-  const n = Number(v);
-  if (!Number.isFinite(n) || n <= 0) return 1;
-  return n;
-}
 
-/* ===== Pull-to-refresh init ===== */
-function setupPullToRefresh(containers){
-  let ind = $("#ptrIndicator");
-  if (!ind){
-    ind = document.createElement("div");
-    ind.id = "ptrIndicator";
-    ind.style.position = "fixed";
-    ind.style.left = "0";
-    ind.style.right = "0";
-    ind.style.top = "0";
-    ind.style.zIndex = "9999";
-    ind.style.padding = "10px 12px";
-    ind.style.textAlign = "center";
-    ind.style.fontSize = "12px";
-    ind.style.fontWeight = "900";
-    ind.style.color = "rgba(7,19,31,.76)";
-    ind.style.background = "rgba(255,255,255,.88)";
-    ind.style.backdropFilter = "blur(16px)";
-    ind.style.webkitBackdropFilter = "blur(16px)";
-    ind.style.borderBottom = "1px solid rgba(10,25,45,.12)";
-    ind.style.transform = "translateY(-120%)";
-    ind.style.transition = "transform 180ms ease";
-    ind.textContent = "下拉同步";
-    document.body.appendChild(ind);
-  }
-
-  const THRESH = 70;
-  containers.forEach(el => {
-    if (!el) return;
-    let pulling=false, startY=0, dist=0;
-
-    const isAtTop = () => (window.scrollY <= 0);
-
-    el.addEventListener("touchstart", (e) => {
-      if (e.touches.length !== 1) return;
-      if (!isAtTop()) return;
-      pulling = true;
-      startY = e.touches[0].clientY;
-      dist = 0;
-    }, { passive:true });
-
-    el.addEventListener("touchmove", (e) => {
-      if (!pulling) return;
-      const y = e.touches[0].clientY;
-      dist = Math.max(0, y - startY);
-      if (dist > 8) e.preventDefault();
-      const pct = clamp(dist/THRESH, 0, 1);
-      ind.textContent = (dist >= THRESH) ? "放開即可同步" : "下拉同步";
-      ind.style.transform = `translateY(${(-120 + pct*120)}%)`;
-    }, { passive:false });
-
-    el.addEventListener("touchend", async () => {
-      if (!pulling) return;
-      pulling = false;
-
-      if (dist >= THRESH){
-        ind.textContent = "同步中…";
-        ind.style.transform = "translateY(0%)";
-        try{
-          await manualSyncViaPullToRefresh();
-          renderAll();
-          ind.textContent = "已同步";
-          setTimeout(()=>ind.style.transform="translateY(-120%)", 500);
-        }catch{
-          ind.textContent = navigator.onLine ? "同步失敗" : "離線，無法同步";
-          setTimeout(()=>ind.style.transform="translateY(-120%)", 800);
+    const handleImgTouchStart = (e) => {
+        if (e.touches.length === 2) {
+            imgGesture.value.isZooming = true;
+            imgGesture.value.startDistance = getDistance(e.touches);
+        } else if (e.touches.length === 1) {
+            imgGesture.value.startX = e.touches[0].clientX;
+            imgGesture.value.startY = e.touches[0].clientY;
+            imgGesture.value.isPulling = false;
         }
-      } else {
-        ind.style.transform = "translateY(-120%)";
+    };
+
+    const handleImgTouchMove = (e) => {
+        if(!showImgViewer.value) return;
+        e.preventDefault(); 
+
+        if (e.touches.length === 2 && imgGesture.value.isZooming) {
+            const dist = getDistance(e.touches);
+            const scaleChange = dist / imgGesture.value.startDistance;
+            let newScale = imgGesture.value.scale * scaleChange;
+            newScale = Math.max(1, Math.min(newScale, 4));
+            
+            if (imgViewerEl.value) {
+                imgViewerEl.value.style.transform = `scale(${newScale}) translate(${imgGesture.value.currentX}px, ${imgGesture.value.currentY}px)`;
+            }
+            imgViewerEl.value.style.transform = `scale(${newScale})`;
+            imgGesture.value.tempScale = newScale; 
+        } 
+        else if (e.touches.length === 1) {
+            const dy = e.touches[0].clientY - imgGesture.value.startY;
+            const dx = e.touches[0].clientX - imgGesture.value.startX;
+
+            if (imgGesture.value.scale === 1) {
+                if (dy > 0) {
+                    imgGesture.value.currentY = dy;
+                    imgGesture.value.isPulling = true;
+                    if (imgViewerEl.value) {
+                        imgViewerEl.value.style.transform = `translateY(${dy}px) scale(${1 - dy/1000})`;
+                    }
+                    const overlay = document.querySelector('.img-viewer-overlay');
+                    if(overlay) overlay.style.backgroundColor = `rgba(0,0,0,${Math.max(0, 0.98 - dy/600)})`;
+                }
+            } else {
+                if (imgViewerEl.value) {
+                     imgViewerEl.value.style.transform = `scale(${imgGesture.value.scale}) translate(${dx/imgGesture.value.scale}px, ${dy/imgGesture.value.scale}px)`;
+                }
+            }
+        }
+    };
+
+    const handleImgTouchEnd = (e) => {
+        if (imgGesture.value.isZooming) {
+            if (imgGesture.value.tempScale) {
+                imgGesture.value.scale = imgGesture.value.tempScale;
+            }
+            imgGesture.value.isZooming = false;
+            if (imgGesture.value.scale < 1) {
+                imgGesture.value.scale = 1;
+                resetImgTransform();
+            }
+        } else if (imgGesture.value.isPulling) {
+            if (imgGesture.value.currentY > 100) {
+                closeImgViewer();
+            } else {
+                resetImgTransform();
+                const overlay = document.querySelector('.img-viewer-overlay');
+                if(overlay) overlay.style.backgroundColor = '';
+            }
+            imgGesture.value.isPulling = false;
+        }
+    };
+
+    const resetImgTransform = () => {
+        if (imgViewerEl.value) {
+            imgViewerEl.value.style.transform = `scale(${imgGesture.value.scale})`;
+        }
+    };
+
+    const toggleZoom = () => {
+        if (imgGesture.value.scale > 1) {
+            imgGesture.value.scale = 1;
+        } else {
+            imgGesture.value.scale = 2.5;
+        }
+        resetImgTransform();
+    };
+
+    const tripStatus = computed(() => {
+      const now = new Date();
+      const start = new Date('2026-08-30');
+      const end = new Date('2026-09-26');
+      now.setHours(0,0,0,0); start.setHours(0,0,0,0); end.setHours(0,0,0,0);
+      
+      if (now < start) return `倒數 ${Math.ceil((start - now)/86400000)} 天`;
+      
+      if (now >= start && now <= end) {
+         const diff = Math.floor((now - start)/86400000) + 1;
+         return `DAY ${diff}`;
       }
-      dist = 0;
-    }, { passive:true });
-  });
-}
+      
+      return '';
+    });
 
-/* ===== Init ===== */
-function buildSplitChooserInit(){ buildSplitChooser(); clearExpenseDefaults(); }
-(function init(){
-  const ui = load(LS.ui, {});
-  if (ui.tab && ["itinerary","expenses","analysis"].includes(ui.tab)) state.tab = ui.tab;
+    const tripDates = [];
+    const startDate = new Date('2026-08-30');
+    for (let d = new Date(startDate); d <= new Date('2026-09-26'); d.setDate(d.getDate()+1)) {
+      tripDates.push({ date: d.toISOString().split('T')[0], short: (d.getMonth()+1)+'/'+d.getDate() });
+    }
+    const selDate = ref(tripDates[0].date);
+    
+    // Filter State
+    const showFilterMenu = ref(false);
+    const filters = ref({
+        date: 'ALL',
+        item: 'ALL',
+        payer: 'ALL',
+        location: 'ALL',
+        payment: 'ALL'
+    });
 
-  buildDateStrip();
-  buildItCatChooser();
-  buildSplitChooserInit();
-  attachEvents();
-  setupPullToRefresh([pageIt, pageEx, pageAn]);
-  setupGestures();
-  setupViewer();
+    const showRateModal = ref(false);
+    const showItinModal = ref(false);
+    const showExpModal = ref(false);
+    const isEditing = ref(false);
+    const itinForm = ref({ row: null, startTime: '09:00', endTime: '', category: '景點', title: '', location: '', link: '', note: '', imgUrl: '', newImageBase64: null, deleteImage: false, imgId: '' });
+    const newExp = ref({ payer: '', location: '', item: '', payment: '', currency: 'NTD', amount: null, involved: [], note: '' });
+    const editExpForm = ref({});
+    const tempRates = ref({});
 
-  renderHeader();
-  setInterval(renderHeader, 60*1000);
+    watch(() => newExp.value.payer, (v) => { if (v) newExp.value.involved = [v]; });
 
-  setTab(state.tab);
-  updateSyncBadge();
+    const pullDistance = ref(0);
+    const refreshText = computed(() => isPullRefreshing.value ? '更新中...' : '下拉更新');
 
-  // initial pull (no forced syncOutbox on load)
-  if (navigator.onLine){
-    pullAll().then(() => renderAll()).catch(() => renderAll());
-  } else {
-    renderAll();
+    const initDate = () => {
+      const now = new Date();
+      todayDate.value = now.getFullYear() + '.' + String(now.getMonth()+1).padStart(2,'0') + '.' + String(now.getDate()).padStart(2,'0');
+      const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+      todayWeekday.value = days[now.getDay()];
+    };
+
+    /* iOS Gesture Engine */
+    const gesture = {
+      active:false, mode:null,
+      startX:0, startY:0, dx:0, dy:0,
+      startedAtLeftEdge:false,
+      startedAtRightEdge:false,
+      inSelectable:false,
+      selectIntent:false, 
+      longPressTimer:null
+    };
+    
+    const hasTextSelection = () => {
+      const sel = window.getSelection();
+      return !!(sel && sel.toString && sel.toString().length > 0);
+    };
+
+    const isBlockedTarget = (target) => {
+      if (target.closest('.swipe-protected')) return true;
+      const tag = (target.tagName || '').toLowerCase();
+      if (['input','textarea','select','button','a','label'].includes(tag)) return true;
+      return false;
+    };
+
+    const clearLongPress = () => {
+      if (gesture.longPressTimer) {
+        clearTimeout(gesture.longPressTimer);
+        gesture.longPressTimer = null;
+      }
+    };
+
+    const attachGestureListeners = () => {
+      const el = scrollContainer.value;
+      if (!el) return;
+
+      const onTouchStart = (e) => {
+        const t = e.touches[0];
+        gesture.active = true;
+        gesture.mode = null;
+        gesture.dx = 0;
+        gesture.dy = 0;
+        gesture.startX = t.clientX;
+        gesture.startY = t.clientY;
+        
+        const w = window.innerWidth;
+        const edgeThreshold = w * 0.15;
+        
+        gesture.startedAtLeftEdge = (gesture.startX <= edgeThreshold);
+        gesture.startedAtRightEdge = (gesture.startX >= w - edgeThreshold);
+
+        gesture.inSelectable = !!e.target.closest('.allow-select');
+        gesture.selectIntent = false; 
+        clearLongPress();
+
+        if (gesture.inSelectable) {
+          gesture.longPressTimer = setTimeout(() => {
+            gesture.selectIntent = true;
+          }, 220);
+        }
+
+        gesture.blocked = isBlockedTarget(e.target);
+      };
+
+      const onTouchMove = (e) => {
+        if (!gesture.active) return;
+        if (gesture.blocked) return;
+
+        const t = e.touches[0];
+        gesture.dx = t.clientX - gesture.startX;
+        gesture.dy = t.clientY - gesture.startY;
+        const absX = Math.abs(gesture.dx);
+        const absY = Math.abs(gesture.dy);
+
+        if (gesture.inSelectable) {
+           if (absX > 10 || absY > 10) clearLongPress();
+        }
+
+        if (gesture.inSelectable && (gesture.selectIntent || hasTextSelection())) return;
+
+        if (!gesture.mode) {
+          if (absX < 10 && absY < 10) return;
+          gesture.mode = (absX > absY) ? 'h' : 'v';
+        }
+
+        if (gesture.mode === 'h') {
+          if ((gesture.startedAtLeftEdge || gesture.startedAtRightEdge) && e.cancelable) {
+             e.preventDefault();
+          }
+          return;
+        }
+
+        if (gesture.mode === 'v') {
+          const scroller = scrollContainer.value;
+          const isTop = scroller ? scroller.scrollTop <= 0 : true;
+          if (isTop && gesture.dy > 0) {
+            if (e.cancelable) e.preventDefault();
+            pullDistance.value = Math.min(72, Math.pow(gesture.dy, 0.7));
+          }
+        }
+      };
+
+      const onTouchEnd = () => {
+        if (!gesture.active) return;
+        gesture.active = false;
+        clearLongPress();
+
+        if (gesture.inSelectable && (gesture.selectIntent || hasTextSelection())) {
+          pullDistance.value = 0;
+          gesture.mode = null;
+          return; 
+        }
+
+        if (pullDistance.value > 60) {
+          pullDistance.value = 60;
+          isPullRefreshing.value = true;
+          loadData();
+          return;
+        } else {
+          pullDistance.value = 0;
+        }
+
+        if (gesture.mode === 'h') {
+           const absX = Math.abs(gesture.dx);
+           if (absX > 60) {
+             if (gesture.startedAtLeftEdge && gesture.dx > 0) {
+                if (tab.value === 'expense') tab.value = 'itinerary';
+                else if (tab.value === 'analysis') tab.value = 'expense';
+             }
+             else if (gesture.startedAtRightEdge && gesture.dx < 0) {
+                if (tab.value === 'itinerary') tab.value = 'expense';
+                else if (tab.value === 'expense') changeTabToAnalysis();
+             }
+             else if (tab.value === 'itinerary' && !gesture.startedAtLeftEdge && !gesture.startedAtRightEdge) {
+                if (gesture.dx < 0) switchDay('next');
+                else switchDay('prev');
+             }
+           }
+        }
+
+        gesture.mode = null;
+        gesture.inSelectable = false;
+        gesture.selectIntent = false;
+      };
+
+      attachGestureListeners._handlers = { onTouchStart, onTouchMove, onTouchEnd };
+
+      el.addEventListener('touchstart', onTouchStart, { passive: true });
+      el.addEventListener('touchmove',  onTouchMove,  { passive: false });
+      el.addEventListener('touchend',   onTouchEnd,   { passive: true });
+      el.addEventListener('touchcancel',onTouchEnd,   { passive: true });
+    };
+
+    const detachGestureListeners = () => {
+      const el = scrollContainer.value;
+      const h = attachGestureListeners._handlers;
+      if (!el || !h) return;
+      el.removeEventListener('touchstart', h.onTouchStart);
+      el.removeEventListener('touchmove', h.onTouchMove);
+      el.removeEventListener('touchend', h.onTouchEnd);
+      el.removeEventListener('touchcancel', h.onTouchEnd);
+      attachGestureListeners._handlers = null;
+    };
+
+    const saveLocal = (data) => {
+      try {
+        const toSave = {
+           expenses: expenses.value,
+           itinerary: itinerary.value,
+           members: members.value,
+           rates: rates.value
+        };
+        localStorage.setItem('tripData_v36', JSON.stringify(toSave));
+        localStorage.setItem('syncQueue_v36', JSON.stringify(syncQueue.value));
+      } catch(e){}
+    };
+
+    const loadLocal = () => {
+      const data = localStorage.getItem('tripData_v36');
+      const q = localStorage.getItem('syncQueue_v36');
+      if (q) syncQueue.value = JSON.parse(q);
+      if (data) {
+        const parsed = JSON.parse(data);
+        expenses.value = parsed.expenses || [];
+        itinerary.value = parsed.itinerary || [];
+        members.value = parsed.members || [];
+        rates.value = parsed.rates || {};
+        return true;
+      }
+      return false;
+    };
+
+    const getBackendActionName = (type, action) => {
+      if (action === 'delete') return 'deleteRow';
+      const suffix = (type === 'itin') ? 'Itinerary' : 'Expense';
+      return action + suffix;
+    };
+
+    const updateLocalData = (res) => {
+      if (res && res.expenses) {
+        expenses.value = res.expenses;
+        itinerary.value = res.itinerary;
+        members.value = res.members;
+        rates.value = res.rates;
+        saveLocal({}); 
+        if (tab.value === 'analysis') scheduleRenderChart();
+      }
+    };
+
+    const processSyncQueue = async () => {
+      if (syncQueue.value.length === 0 || !navigator.onLine || isSyncing.value) return;
+      
+      isSyncing.value = true;
+      const queue = [...syncQueue.value];
+      const remaining = [];
+
+      for (const job of queue) {
+        try {
+          const apiAction = getBackendActionName(job.type, job.action);
+          const res = await callApi(apiAction, job.data, 'POST');
+          
+          if (res) {
+            updateLocalData(res);
+          } else {
+            remaining.push(job);
+          }
+        } catch (e) {
+          remaining.push(job);
+        }
+      }
+
+      syncQueue.value = remaining;
+      saveLocal({});
+      isSyncing.value = false;
+      
+      if (syncQueue.value.length === 0) loadData();
+    };
+
+    const handleCRUD = async (type, action, data) => {
+       if (navigator.onLine) {
+         isSyncing.value = true;
+         try {
+           const apiAction = getBackendActionName(type, action);
+           const res = await callApi(apiAction, data, 'POST');
+           if (!res) throw new Error("API Fail");
+           updateLocalData(res);
+         } catch (e) {
+           syncQueue.value.push({ type, action, data });
+         } finally {
+           isSyncing.value = false;
+         }
+       } else {
+         syncQueue.value.push({ type, action, data });
+       }
+       saveLocal({});
+    };
+
+    const loadData = async () => {
+      if (!isPullRefreshing.value) isLoading.value = true;
+
+      if (loadLocal()) {
+        if (isFirstLoad.value) {
+          nextTick(() => checkAndScrollToToday());
+          isFirstLoad.value = false;
+        }
+        if (tab.value === 'analysis') scheduleRenderChart();
+        setTimeout(() => { if (!isPullRefreshing.value) isLoading.value = false; }, 150);
+      }
+
+      if (!navigator.onLine) {
+        isLoading.value = false;
+        isPullRefreshing.value = false;
+        pullDistance.value = 0;
+        return;
+      }
+
+      try {
+        const res = await callApi('getData');
+        updateLocalData(res);
+      } catch(e) {
+      } finally {
+        isLoading.value = false;
+        isPullRefreshing.value = false;
+        pullDistance.value = 0;
+      }
+    };
+
+    const selectDate = (date) => { 
+        selDate.value = date; 
+        scrollToDateBtn(date);
+        if(scrollContainer.value) scrollContainer.value.scrollTop = 0;
+    };
+
+    const scrollToDateBtn = (date) => {
+      nextTick(() => {
+        const btn = document.getElementById('date-btn-' + date);
+        if (btn && dateContainer.value) {
+          const centerPos = (btn.offsetLeft - dateContainer.value.offsetLeft) - (dateContainer.value.clientWidth / 2) + (btn.clientWidth / 2);
+          dateContainer.value.scrollTo({ left: centerPos, behavior: 'smooth' });
+        }
+      });
+    };
+
+    const checkAndScrollToToday = () => {
+      const d = new Date(); const offset = d.getTimezoneOffset() * 60000;
+      const todayStr = new Date(d.getTime() - offset).toISOString().split('T')[0];
+      if (tripDates.some(x => x.date === todayStr)) selectDate(todayStr);
+      else selectDate(tripDates[0].date);
+    };
+
+    const switchDay = (direction) => {
+      const idx = tripDates.findIndex(d => d.date === selDate.value);
+      if (direction === 'next' && idx < tripDates.length - 1) selectDate(tripDates[idx + 1].date);
+      if (direction === 'prev' && idx > 0) selectDate(tripDates[idx - 1].date);
+    };
+
+    const getDayInfo = (dStr) => {
+      const d = new Date(dStr);
+      const diff = Math.ceil((d - startDate)/86400000) + 1;
+      return `DAY ${diff} · ${['週日','週一','週二','週三','週四','週五','週六'][d.getDay()]}`;
+    };
+
+    const getCategoryClass = (cat) => {
+      switch(cat) {
+        case '交通': return 'cat-traffic';
+        case '住宿': return 'cat-stay';
+        case '景點': return 'cat-spot';
+        case '飲食': return 'cat-food';
+        default: return 'cat-note';
+      }
+    };
+
+    const getEvents = (d) => itinerary.value.filter(e => e.date === d).sort((a,b)=>a.startTime.localeCompare(b.startTime));
+    const formatNumber = (n) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+
+    // Dynamic Options for Filters
+    const uniqueExpDates = computed(() => [...new Set(expenses.value.map(e => e.date))].sort());
+    const uniqueItems = computed(() => [...new Set(expenses.value.map(e => e.item))].filter(Boolean));
+    const uniqueLocations = computed(() => [...new Set(expenses.value.map(e => e.location))].filter(Boolean));
+    const uniquePayments = computed(() => [...new Set(expenses.value.map(e => e.payment))].filter(Boolean));
+
+    const hasActiveFilters = computed(() => {
+        return Object.values(filters.value).some(v => v !== 'ALL');
+    });
+
+    const resetFilters = () => {
+        filters.value = { date: 'ALL', item: 'ALL', payer: 'ALL', location: 'ALL', payment: 'ALL' };
+    };
+
+    const filteredExpenses = computed(() => {
+        return expenses.value.filter(e => {
+            if (filters.value.date !== 'ALL' && e.date !== filters.value.date) return false;
+            if (filters.value.item !== 'ALL' && e.item !== filters.value.item) return false;
+            if (filters.value.payer !== 'ALL' && e.payer !== filters.value.payer) return false;
+            if (filters.value.location !== 'ALL' && e.location !== filters.value.location) return false;
+            if (filters.value.payment !== 'ALL' && e.payment !== filters.value.payment) return false;
+            return true;
+        });
+    });
+
+    const getAmountTWD = (exp) => {
+      if (exp.amountTWD && exp.amountTWD > 0) return exp.amountTWD;
+      return Math.round(exp.amount * (rates.value[exp.currency] || 1));
+    };
+
+    const publicSpent = computed(() => {
+      return expenses.value.reduce((sum, e) => {
+        const amt = getAmountTWD(e);
+        if (!e.involved || e.involved.length === 0) return sum;
+        const perShare = amt / e.involved.length;
+        let bill = 0;
+        if (e.involved.includes('家齊')) bill += perShare;
+        if (e.involved.includes('亭穎')) bill += perShare;
+        return sum + bill;
+      }, 0);
+    });
+
+    const momSpent = computed(() => {
+      return expenses.value.reduce((sum, e) => {
+        const amt = getAmountTWD(e);
+        if (e.involved && e.involved.includes('媽媽')) return sum + (amt / e.involved.length);
+        return sum;
+      }, 0);
+    });
+
+    const debts = computed(() => {
+      if (members.value.length === 0) return [];
+      const bal = {}; members.value.forEach(m => bal[m] = 0);
+      expenses.value.forEach(e => {
+        const amt = getAmountTWD(e);
+        const split = e.involved || [];
+        if (split.length > 0) {
+          bal[e.payer] += amt;
+          const share = amt / split.length;
+          split.forEach(p => { if (bal[p] !== undefined) bal[p] -= share; });
+        }
+      });
+      let debtors=[], creditors=[];
+      for (const m in bal) {
+        if (bal[m] < -1) debtors.push({p:m, a:bal[m]});
+        if (bal[m] > 1) creditors.push({p:m, a:bal[m]});
+      }
+      debtors.sort((a,b)=>a.a-b.a);
+      creditors.sort((a,b)=>b.a-a.a);
+      const res=[]; let i=0, j=0;
+      while(i<debtors.length && j<creditors.length){
+        const d=debtors[i], c=creditors[j];
+        const amt=Math.min(Math.abs(d.a), c.a);
+        res.push({from:d.p, to:c.p, amount:Math.round(amt)});
+        d.a += amt; c.a -= amt;
+        if (Math.abs(d.a)<1) i++;
+        if (c.a<1) j++;
+      }
+      return res;
+    });
+
+    const getItemTagClass = (item) => {
+      const s = String(item || '');
+      if (s.includes('交通')) {
+        if (s.includes('機票')) return 'tag-ticket';
+        return 'tag-traffic';
+      }
+      if (s.includes('住宿')) return 'tag-stay';
+      if (['早餐','午餐','晚餐','零食'].some(k => s.includes(k))) return 'tag-food';
+      if (['紀念品'].some(k => s.includes(k))) return 'tag-shop';
+      return 'tag-other';
+    };
+
+    /* Chart Logic */
+    let chartInstance = null;
+    const chartBusy = ref(false);
+    let chartTimer = null;
+
+    const buildStats = () => {
+      const stats = {};
+      const list = filteredExpenses.value;
+      for (let i=0;i<list.length;i++){
+        const e = list[i];
+        const key = e.item || '其他';
+        stats[key] = (stats[key] || 0) + getAmountTWD(e);
+      }
+      return stats;
+    };
+
+    const renderChart = () => {
+      const canvas = document.getElementById('expenseChart');
+      if (!canvas) return;
+
+      const stats = buildStats();
+      const labels = Object.keys(stats);
+      const data = Object.values(stats);
+
+      const nordicColors = ['#38bdf8', '#818cf8', '#c084fc', '#f472b6', '#fb7185', '#22d3ee', '#34d399', '#a78bfa', '#fbcfe8', '#e2e8f0'];
+
+      if (chartInstance) {
+        chartInstance.data.labels = labels;
+        chartInstance.data.datasets[0].data = data;
+        chartInstance.data.datasets[0].backgroundColor = labels.map((_,i)=>nordicColors[i % nordicColors.length]);
+        chartInstance.update('none');
+      } else {
+        chartInstance = new Chart(canvas, {
+          type: 'doughnut',
+          data: { labels, datasets: [{ data, backgroundColor: labels.map((_,i)=>nordicColors[i % nordicColors.length]), borderWidth: 0, hoverOffset: 4 }] },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            cutout: '70%',
+            animation: { duration: 800 },
+            plugins: {
+              legend: {
+                position: 'bottom',
+                labels: {
+                  font: { family: 'Inter', size: 11, weight: 'bold' },
+                  color: '#64748b',
+                  usePointStyle: true,
+                  padding: 12,
+                  boxWidth: 8
+                }
+              }
+            }
+          }
+        });
+      }
+      chartBusy.value = false;
+    };
+
+    const scheduleRenderChart = async () => {
+      if (tab.value !== 'analysis') return;
+      chartBusy.value = true;
+
+      if (chartTimer) clearTimeout(chartTimer);
+      chartTimer = setTimeout(() => {
+        nextTick(() => {
+          renderChart();
+        });
+      }, 300);
+    };
+
+    const changeTabToAnalysis = async () => {
+      tab.value = 'analysis';
+      if (chartInstance) {
+        chartInstance.destroy();
+        chartInstance = null;
+      }
+      scheduleRenderChart();
+    };
+
+    watch(tab, (val) => {
+      if (val === 'analysis') scheduleRenderChart();
+      if (val === 'expense') {
+        newExp.value = { payer: '', location: '', item: '', payment: '', currency: 'NTD', amount: null, involved: [], note: '' };
+      }
+    });
+    watch(filters, () => { if (tab.value === 'analysis') scheduleRenderChart(); }, { deep: true });
+    watch(expenses, () => { if (tab.value === 'analysis') scheduleRenderChart(); }, { deep: true });
+
+    const openRateModal = () => { tempRates.value = { ...rates.value }; showRateModal.value = true; };
+    const openAddItin = () => { itinForm.value = { row: null, startTime: '09:00', endTime: '', category: '景點', title: '', location: '', link: '', note: '', imgUrl: '', newImageBase64: null, deleteImage: false, imgId: '' }; isEditing.value = false; showItinModal.value = true; };
+    const openEditItin = (evt) => { itinForm.value = { ...evt, newImageBase64: null, deleteImage: false }; isEditing.value = true; showItinModal.value = true; };
+    const openEditExp = (exp) => { editExpForm.value = JSON.parse(JSON.stringify(exp)); showExpModal.value = true; };
+    
+    // Image Handling
+    const handleImageUpload = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (evt) => {
+            itinForm.value.imgUrl = evt.target.result; // Preview
+            itinForm.value.newImageBase64 = evt.target.result; // For upload
+            itinForm.value.deleteImage = false;
+        };
+        reader.readAsDataURL(file);
+    };
+
+    const removeImage = () => {
+        itinForm.value.imgUrl = '';
+        itinForm.value.newImageBase64 = null;
+        itinForm.value.deleteImage = true;
+    };
+
+    const viewImage = (url) => {
+        viewingImg.value = url;
+        showImgViewer.value = true;
+        imgGesture.value = { startX: 0, startY: 0, currentX: 0, currentY: 0, scale: 1, isPulling: false, isZooming: false, startDistance: 0 };
+    };
+    const closeImgViewer = () => { 
+        if (imgViewerEl.value) imgViewerEl.value.style.transform = '';
+        const overlay = document.querySelector('.img-viewer-overlay');
+        if(overlay) overlay.style.backgroundColor = '';
+        showImgViewer.value = false; 
+    };
+
+    // ===================================
+    // Actions
+    // ===================================
+
+    const deleteItin = async (evt) => { 
+      if(!confirm('確定刪除?')) return; 
+      
+      itinerary.value = itinerary.value.filter(x => x.row !== evt.row); 
+      
+      const pendingIdx = syncQueue.value.findIndex(job => 
+        job.type === 'itin' && job.action === 'add' && job.data.row === evt.row
+      );
+
+      if (pendingIdx !== -1) {
+        syncQueue.value.splice(pendingIdx, 1);
+        saveLocal({});
+      } else {
+        handleCRUD('itin', 'delete', { row: evt.row, sheetName: 'Itinerary' });
+      }
+    };
+
+    const deleteExp = async (exp) => { 
+      if(!confirm('確定刪除?')) return; 
+      expenses.value = expenses.value.filter(x => x.row !== exp.row); 
+      
+      const pendingIdx = syncQueue.value.findIndex(job => 
+        job.type === 'exp' && job.action === 'add' && job.data.row === exp.row
+      );
+
+      if (pendingIdx !== -1) {
+        syncQueue.value.splice(pendingIdx, 1);
+        saveLocal({});
+      } else {
+        handleCRUD('exp', 'delete', { row: exp.row, sheetName: 'Expenses' });
+      }
+    };
+
+    const submitItin = async () => {
+      if(!itinForm.value.title) return alert('請輸入標題');
+      const newRow = isEditing.value ? itinForm.value.row : Date.now();
+      const payload = { ...itinForm.value, row: newRow, date: selDate.value };
+      
+      if(isEditing.value) {
+         const idx = itinerary.value.findIndex(x => x.row === newRow);
+         if(idx !== -1) itinerary.value[idx] = payload;
+         handleCRUD('itin', 'edit', payload);
+      } else {
+         itinerary.value.push(payload);
+         handleCRUD('itin', 'add', payload);
+      }
+      showItinModal.value = false;
+    };
+
+    const submitExp = async () => {
+      if(!newExp.value.amount || !newExp.value.item) return alert('請輸入金額與項目');
+      const payload = { 
+        ...newExp.value, 
+        row: Date.now(), 
+        date: new Date().toISOString().split('T')[0], 
+        time: new Date().toTimeString().slice(0,5),
+        amountTWD: Math.round(newExp.value.amount * (rates.value[newExp.value.currency] || 1))
+      };
+      
+      expenses.value.unshift(payload);
+      handleCRUD('exp', 'add', payload);
+      
+      newExp.value.amount = null; newExp.value.item = ''; newExp.value.note = ''; newExp.value.involved = [];
+      alert('記帳成功');
+    };
+
+    const submitEditExp = async () => {
+        const idx = expenses.value.findIndex(e => e.row === editExpForm.value.row);
+        if(idx === -1) return;
+        
+        const updated = { ...editExpForm.value };
+        updated.amountTWD = Math.round(updated.amount * (rates.value[updated.currency] || 1));
+        
+        expenses.value[idx] = updated;
+        showExpModal.value = false;
+        handleCRUD('exp', 'edit', updated);
+    };
+
+    const saveRates = () => {
+       rates.value = { ...tempRates.value };
+       saveLocal({});
+       showRateModal.value = false;
+       callApi('updateRates', rates.value, 'POST');
+    };
+
+    const confirmClearSync = () => { 
+      if(confirm('確定要強制清空所有待上傳資料嗎？\n注意：這會導致離線新增的資料無法同步到伺服器。')) {
+        syncQueue.value = []; 
+        saveLocal({});
+      }
+    };
+    
+    const toggleSelectAll = () => { if(newExp.value.involved.length === members.value.length) newExp.value.involved=[]; else newExp.value.involved=[...members.value]; };
+    
+    const toggleSelectAllEdit = () => { 
+        if(!editExpForm.value.involved) editExpForm.value.involved = [];
+        if(editExpForm.value.involved.length === members.value.length) editExpForm.value.involved=[]; 
+        else editExpForm.value.involved=[...members.value]; 
+    };
+
+    const updateOnlineStatus = () => { 
+      isOnline.value = navigator.onLine; 
+      if (isOnline.value) processSyncQueue();
+    };
+
+    const isItemPending = (rowId) => {
+      return syncQueue.value.some(job => job.data.row === rowId);
+    };
+
+    onMounted(async () => {
+      initDate();
+      window.addEventListener('online', updateOnlineStatus);
+      window.addEventListener('offline', updateOnlineStatus);
+      await nextTick();
+      attachGestureListeners();
+      loadData();
+      
+      if(navigator.onLine) processSyncQueue();
+    });
+
+    onBeforeUnmount(() => {
+      detachGestureListeners();
+      window.removeEventListener('online', updateOnlineStatus);
+      window.removeEventListener('offline', updateOnlineStatus);
+      if (chartInstance) { chartInstance.destroy(); chartInstance = null; }
+    });
+
+    return {
+      tab, isLoading, isOnline, isSyncing, syncQueue,
+      dateContainer, scrollContainer,
+      todayDate, todayWeekday,
+      pullDistance, isPullRefreshing, refreshText,
+      tripStatus, tripDates, selDate,
+      itinerary, 
+      selectDate, getDayInfo, getEvents, getCategoryClass,
+      expenses, rates, members, 
+      filters, showFilterMenu, uniqueExpDates, uniqueItems, uniqueLocations, uniquePayments,
+      resetFilters, hasActiveFilters, filteredExpenses,
+      formatNumber, getAmountTWD,
+      publicSpent, momSpent, debts,
+      getItemTagClass,
+      chartBusy,
+      changeTabToAnalysis,
+      showRateModal, showItinModal, showExpModal, isEditing,
+      itinForm, newExp, editExpForm, tempRates,
+      openRateModal, openAddItin, openEditItin, openEditExp,
+      deleteItin, deleteExp, submitItin, submitExp, submitEditExp, saveRates, 
+      confirmClearSync, toggleSelectAll, toggleSelectAllEdit, isItemPending,
+      handleImageUpload, removeImage, viewImage, closeImgViewer, showImgViewer, viewingImg,
+      imgViewerEl, handleImgTouchStart, handleImgTouchMove, handleImgTouchEnd, imgGesture, toggleZoom
+    };
   }
-})();
-function renderAll(){
-  updateSyncBadge();
-  if (state.tab === "itinerary") renderItinerary();
-  // analysis render keep your existing if present
-}
+}).mount('#app');
